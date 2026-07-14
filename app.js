@@ -125,6 +125,54 @@ function getLessons() {
   });
 }
 
+// ---------- Official exam (separate from practice quizzes) ----------
+const EXAM_CONFIG_KEY = "kolo_exam_config_v1";
+const EXAM_RESULTS_KEY = "kolo_exam_results_v1";
+const EXAM_TAKER_KEY = "kolo_exam_current_taker";
+
+function loadExamConfig() {
+  try {
+    return JSON.parse(localStorage.getItem(EXAM_CONFIG_KEY)) || { enabled: false, questions: [] };
+  } catch (e) {
+    return { enabled: false, questions: [] };
+  }
+}
+function saveExamConfig(cfg) {
+  localStorage.setItem(EXAM_CONFIG_KEY, JSON.stringify(cfg));
+}
+function generateExamQuestions(count) {
+  const pool = getLessons().flatMap(allItems).filter((it) => it.korean && it.lao_meaning);
+  return shuffle(pool).slice(0, Math.min(count, pool.length)).map((it) => ({
+    korean: it.korean,
+    lao_phonetic: it.lao_phonetic,
+    lao_meaning: it.lao_meaning,
+  }));
+}
+function getCurrentExamTaker() {
+  return sessionStorage.getItem(EXAM_TAKER_KEY) || "";
+}
+function setCurrentExamTaker(name) {
+  sessionStorage.setItem(EXAM_TAKER_KEY, name.trim());
+}
+function clearCurrentExamTaker() {
+  sessionStorage.removeItem(EXAM_TAKER_KEY);
+}
+function loadExamResults() {
+  try {
+    return JSON.parse(localStorage.getItem(EXAM_RESULTS_KEY)) || [];
+  } catch (e) {
+    return [];
+  }
+}
+function saveExamResults(list) {
+  localStorage.setItem(EXAM_RESULTS_KEY, JSON.stringify(list));
+}
+function addExamResult(name, score, total) {
+  const list = loadExamResults();
+  list.push({ name: name.trim(), score, total, timestamp: Date.now() });
+  saveExamResults(list);
+}
+
 // ---------- Helpers ----------
 function findLesson(id) {
   return getLessons().find((l) => l.id === id);
@@ -190,8 +238,9 @@ function navigate(hash) {
 backBtn.addEventListener("click", () => {
   const parts = currentRoute();
   if (parts.view === "lesson" || parts.view === "quiz" || parts.view === "students") navigate("#/home");
-  else if (parts.view === "edit") navigate("#/students");
+  else if (parts.view === "edit" || parts.view === "examedit") navigate("#/students");
   else if (parts.view === "result") navigate("#/lesson/" + parts.id);
+  else if (parts.view === "examquiz" || parts.view === "examresult") navigate("#/examname");
   else navigate("#/home");
 });
 studentBtn.addEventListener("click", () => navigate("#/name"));
@@ -202,6 +251,10 @@ function currentRoute() {
   if (parts[0] === "name") return { view: "name" };
   if (parts[0] === "students") return { view: "students" };
   if (parts[0] === "edit") return { view: "edit", id: parts[1] };
+  if (parts[0] === "examedit") return { view: "examedit" };
+  if (parts[0] === "examname") return { view: "examname" };
+  if (parts[0] === "examquiz") return { view: "examquiz" };
+  if (parts[0] === "examresult") return { view: "examresult", score: parts[1], total: parts[2] };
   if (parts[0] === "lesson") return { view: "lesson", id: parts[1] };
   if (parts[0] === "quiz") return { view: "quiz", id: parts[1] };
   if (parts[0] === "result") return { view: "result", id: parts[1], score: parts[2], total: parts[3] };
@@ -221,7 +274,7 @@ function render() {
   const needsStudent = ["home", "lesson", "quiz", "result"].includes(route.view);
   if (needsStudent && !getCurrentStudent()) return navigate("#/name");
 
-  const needsAdmin = route.view === "students" || route.view === "edit";
+  const needsAdmin = route.view === "students" || route.view === "edit" || route.view === "examedit";
   if (needsAdmin && !isAdminUnlocked()) return renderAdminGate(window.location.hash || "#/students");
 
   updateStudentBadge(route.view);
@@ -229,6 +282,10 @@ function render() {
   if (route.view === "name") return renderNameEntry();
   if (route.view === "students") return renderStudents();
   if (route.view === "edit") return renderEdit(route.id);
+  if (route.view === "examedit") return renderExamEdit();
+  if (route.view === "examname") return renderExamNameEntry();
+  if (route.view === "examquiz") return renderExamQuiz();
+  if (route.view === "examresult") return renderExamResult(Number(route.score), Number(route.total));
   if (route.view === "home") return renderHome();
   if (route.view === "lesson") return renderLesson(route.id);
   if (route.view === "quiz") return renderQuiz(route.id);
@@ -236,9 +293,10 @@ function render() {
   renderHome();
 }
 
+const EXAM_VIEWS = ["examname", "examquiz", "examresult", "examedit"];
 function updateStudentBadge(view) {
   const name = getCurrentStudent();
-  if (view === "name" || !name) {
+  if (view === "name" || EXAM_VIEWS.includes(view) || !name) {
     studentBtn.classList.add("hidden");
   } else {
     studentBtn.classList.remove("hidden");
@@ -267,6 +325,7 @@ function renderNameEntry() {
     <input id="nameInput" class="name-input" type="text" placeholder="ຂຽນຊື່ຂອງທ່ານທີ່ນີ້..." autocomplete="off" />
     <button class="btn-primary" id="nameStartBtn">ເລີ່ມຮຽນ →</button>
     ${chips ? `<div class="name-chips-label">ຫຼືເລືອກຊື່ທີ່ເຄີຍລົງທະບຽນ:</div>${chips}` : ""}
+    <button class="link-btn" id="examLinkBtn">📝 ລົງຊື່ເຂົ້າສອບເສັງ (ສະເພາະສອບເສັງທາງການ)</button>
     <button class="link-btn" id="rosterLinkBtn">📋 ລາຍຊື່ນັກຮຽນ ແລະ ຄະແນນ (ສຳລັບຄູ/ແອັດມິນ)</button>
   `;
 
@@ -289,6 +348,7 @@ function renderNameEntry() {
       navigate("#/home");
     });
   });
+  document.getElementById("examLinkBtn").addEventListener("click", () => navigate("#/examname"));
   document.getElementById("rosterLinkBtn").addEventListener("click", () => navigate("#/students"));
 }
 
@@ -357,10 +417,28 @@ function renderStudents() {
 
   const editLinks = lessons.map((l, i) => `<button class="lesson-edit-btn" data-id="${l.id}">✏️ ${i + 1}. ${l.title_lo}</button>`).join("");
 
+  const examCfg = loadExamConfig();
+  const examResults = loadExamResults()
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name, "lo") || a.timestamp - b.timestamp);
+  const examResultsHtml = examResults.length
+    ? examResults.map((r) => {
+        const pct = r.total ? Math.round((r.score / r.total) * 100) : 0;
+        const passed = pct >= 70;
+        const date = new Date(r.timestamp).toLocaleString("lo-LA");
+        return `
+        <div class="roster-row">
+          <div class="roster-name">${r.name}</div>
+          <div class="roster-summary">${date}</div>
+          <span class="badge ${passed ? "passed" : "failed"}">${r.score}/${r.total}</span>
+        </div>`;
+      }).join("")
+    : '<div class="empty-msg">ຍັງບໍ່ມີຄົນສອບເສັງ</div>';
+
   app.innerHTML = `
     <div class="intro">
       <h2>ລາຍຊື່ນັກຮຽນ 📋</h2>
-      <p>ຮ່ວມທັງໝົດ ${names.length} ຄົນ. ໄອຄອນສີຂຽວ = ຜ່ານ, ສີແດງ = ຍັງບໍ່ຜ່ານ, ສີເທົາ = ຍັງບໍ່ໄດ້ຮຽນ.</p>
+      <p>ຮ່ວມທັງໝົດ ${names.length} ຄົນ (ລຽງຕາມຕົວອັກສອນ). ໄອຄອນສີຂຽວ = ຜ່ານ, ສີແດງ = ຍັງບໍ່ຜ່ານ, ສີເທົາ = ຍັງບໍ່ໄດ້ຮຽນ.</p>
     </div>
     ${names.length ? `<div class="roster-list">${rows}</div>` : '<div class="empty-msg">ຍັງບໍ່ມີນັກຮຽນລົງທະບຽນ</div>'}
 
@@ -368,6 +446,19 @@ function renderStudents() {
       <h3>✏️ ແກ້ໄຂບົດຮຽນ</h3>
       <p class="admin-hint">ເລືອກບົດຮຽນເພື່ອແກ້ໄຂ, ເພີ່ມ, ຫຼືລຶບຄຳສັບ/ປະໂຫຍກ.</p>
       <div class="edit-links">${editLinks}</div>
+    </div>
+
+    <div class="admin-tools">
+      <h3>📝 ຈັດການບົດສອບເສັງທາງການ</h3>
+      <p class="admin-hint">ບົດສອບເສັງນີ້ແຍກຕ່າງຫາກຈາກແບບທົດສອບຝຶກຫັດປົກກະຕິ — ໃຊ້ 30 ຂໍ້ ສຸ່ມຈາກທັງ 5 ບົດ. ເປີດສະເພາະຍາມທີ່ຈະສອບເສັງແທ້ໆ.</p>
+      <button class="btn-secondary" id="toggleExamBtn">${examCfg.enabled ? "🔴 ປິດຮັບລົງທະບຽນສອບເສັງ" : "🟢 ເປີດຮັບລົງທະບຽນສອບເສັງ"}</button>
+      <button class="btn-secondary" id="regenExamBtn">🎲 ສຸ່ມຄຳຖາມ 30 ຂໍ້ໃໝ່</button>
+      <button class="btn-secondary" id="editExamBtn">✏️ ແກ້ໄຂຄຳຖາມສອບເສັງ (${examCfg.questions.length} ຂໍ້)</button>
+    </div>
+
+    <div class="admin-tools">
+      <h3>🏆 ຜົນສອບເສັງທາງການ</h3>
+      <div class="roster-list">${examResultsHtml}</div>
     </div>
 
     <div class="admin-tools">
@@ -388,6 +479,23 @@ function renderStudents() {
   app.querySelectorAll(".lesson-edit-btn").forEach((btn) => {
     btn.addEventListener("click", () => navigate("#/edit/" + btn.dataset.id));
   });
+  document.getElementById("toggleExamBtn").addEventListener("click", () => {
+    const cfg = loadExamConfig();
+    cfg.enabled = !cfg.enabled;
+    if (cfg.enabled && !cfg.questions.length) {
+      cfg.questions = generateExamQuestions(30);
+    }
+    saveExamConfig(cfg);
+    render();
+  });
+  document.getElementById("regenExamBtn").addEventListener("click", () => {
+    if (!confirm("ສຸ່ມຄຳຖາມສອບເສັງໃໝ່ທັງ 30 ຂໍ້ບໍ? ຄຳຖາມເກົ່າ (ທີ່ອາດແກ້ໄຂໄວ້) ຈະຫາຍໄປ.")) return;
+    const cfg = loadExamConfig();
+    cfg.questions = generateExamQuestions(30);
+    saveExamConfig(cfg);
+    render();
+  });
+  document.getElementById("editExamBtn").addEventListener("click", () => navigate("#/examedit"));
   document.getElementById("exportDataBtn").addEventListener("click", exportDataJs);
   document.getElementById("exportBackupBtn").addEventListener("click", exportOverridesBackup);
   document.getElementById("importInput").addEventListener("change", (e) => {
@@ -469,12 +577,14 @@ function renderHome() {
       <p>ຮຽນຄຳສັບ ແລະ ປະໂຫຍກພາສາເກົາຫຼີທີ່ຈຳເປັນສຳລັບແຮງງານລະດູການ. ອ່ານຄຳອ່ານພາສາລາວ ຟັງສຽງ ແລ້ວທົດລອງເຮັດແບບທົດສອບຫຼັງຈົບແຕ່ລະບົດ.</p>
     </div>
     <div class="lesson-list">${cards}</div>
+    <button class="link-btn" id="examLinkBtn">📝 ລົງຊື່ເຂົ້າສອບເສັງ (ສະເພາະສອບເສັງທາງການ)</button>
     <button class="link-btn" id="rosterLinkBtn">📋 ລາຍຊື່ນັກຮຽນ ແລະ ຄະແນນ (ສຳລັບຄູ/ແອັດມິນ)</button>
   `;
 
   app.querySelectorAll(".lesson-card").forEach((el) => {
     el.addEventListener("click", () => navigate("#/lesson/" + el.dataset.id));
   });
+  document.getElementById("examLinkBtn").addEventListener("click", () => navigate("#/examname"));
   document.getElementById("rosterLinkBtn").addEventListener("click", () => navigate("#/students"));
 }
 
@@ -874,4 +984,300 @@ function saveEditDraft() {
   editDraft = null;
   alert("ບັນທຶກສຳເລັດແລ້ວ!");
   navigate("#/students");
+}
+
+// ---------- Official exam: student sign-in ----------
+function renderExamNameEntry() {
+  backBtn.classList.remove("hidden");
+  topTitle.textContent = "ລົງຊື່ເຂົ້າສອບເສັງ";
+
+  const cfg = loadExamConfig();
+
+  if (!cfg.enabled) {
+    app.innerHTML = `
+      <div class="intro edit-intro">
+        <h2>🔒 ຍັງບໍ່ເປີດຮັບລົງທະບຽນ</h2>
+        <p>ການສອບເສັງທາງການຍັງບໍ່ໄດ້ເປີດໃນຕອນນີ້. ກະລຸນາລໍຖ້າແອັດມິນເປີດການສອບເສັງ.</p>
+      </div>
+      <button class="btn-secondary" id="examBackHomeBtn">← ກັບໄປໜ້າຫຼັກ</button>
+    `;
+    document.getElementById("examBackHomeBtn").addEventListener("click", () => navigate("#/home"));
+    return;
+  }
+
+  if (!cfg.questions.length) {
+    app.innerHTML = `
+      <div class="intro edit-intro">
+        <h2>⚠️ ຍັງບໍ່ມີຄຳຖາມສອບເສັງ</h2>
+        <p>ແອັດມິນຍັງບໍ່ໄດ້ສ້າງຄຳຖາມສອບເສັງ. ກະລຸນາແຈ້ງແອັດມິນ.</p>
+      </div>
+      <button class="btn-secondary" id="examBackHomeBtn">← ກັບໄປໜ້າຫຼັກ</button>
+    `;
+    document.getElementById("examBackHomeBtn").addEventListener("click", () => navigate("#/home"));
+    return;
+  }
+
+  app.innerHTML = `
+    <div class="intro">
+      <h2>📝 ລົງຊື່ເຂົ້າສອບເສັງ</h2>
+      <p>ບ່ອນນີ້ສະເພາະນັກຮຽນທີ່ຈະສອບເສັງທາງການ (${cfg.questions.length} ຂໍ້). ກະລຸນາຂຽນຊື່-ນາມສະກຸນຂອງທ່ານໃຫ້ຖືກຕ້ອງ.</p>
+    </div>
+    <label class="field-label" for="examNameInput">ຊື່ ແລະ ນາມສະກຸນ</label>
+    <input id="examNameInput" class="name-input" type="text" placeholder="ຂຽນຊື່ຂອງທ່ານທີ່ນີ້..." autocomplete="off" />
+    <button class="btn-primary" id="examNameStartBtn">ເລີ່ມສອບເສັງ →</button>
+  `;
+
+  const input = document.getElementById("examNameInput");
+  const start = () => {
+    if (!input.value.trim()) {
+      input.focus();
+      return;
+    }
+    setCurrentExamTaker(input.value);
+    examQuizState = null;
+    navigate("#/examquiz");
+  };
+  document.getElementById("examNameStartBtn").addEventListener("click", start);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") start();
+  });
+  input.focus();
+}
+
+// ---------- Official exam: 30-question quiz ----------
+let examQuizState = null;
+
+function buildExamQuiz() {
+  const cfg = loadExamConfig();
+  const all = cfg.questions;
+  const wholePool = getLessons().flatMap(allItems).filter((it) => it.korean);
+
+  return shuffle(all).map((correctItem) => {
+    const distractSource = shuffle(all.filter((it) => it.lao_meaning !== correctItem.lao_meaning));
+    let distractors = distractSource.slice(0, 3);
+    if (distractors.length < 3) {
+      const extra = shuffle(wholePool.filter((it) => it.lao_meaning !== correctItem.lao_meaning));
+      distractors = distractors.concat(extra.slice(0, 3 - distractors.length));
+    }
+    const choices = shuffle([correctItem.lao_meaning, ...distractors.map((d) => d.lao_meaning)]);
+    return {
+      korean: correctItem.korean,
+      lao_phonetic: correctItem.lao_phonetic,
+      answer: correctItem.lao_meaning,
+      choices,
+    };
+  });
+}
+
+function renderExamQuiz() {
+  if (!getCurrentExamTaker()) return navigate("#/examname");
+  backBtn.classList.remove("hidden");
+  topTitle.textContent = "ການສອບເສັງທາງການ";
+
+  if (!examQuizState) {
+    examQuizState = {
+      questions: buildExamQuiz(),
+      index: 0,
+      score: 0,
+      answered: false,
+    };
+  }
+  renderExamQuizQuestion();
+}
+
+function renderExamQuizQuestion() {
+  const { questions, index } = examQuizState;
+  const total = questions.length;
+  const q = questions[index];
+  const pct = Math.round((index / total) * 100);
+
+  app.innerHTML = `
+    <div class="quiz-q-count">ຄຳຖາມ ${index + 1} / ${total}</div>
+    <div class="quiz-progress"><div class="quiz-progress-bar" style="width:${pct}%"></div></div>
+    <div class="quiz-question">
+      <div class="prompt-label">ຄຳນີ້ຄວາມໝາຍວ່າແນວໃດ?</div>
+      <div class="prompt-phonetic">${q.lao_phonetic}</div>
+      <div class="prompt-korean ko">${q.korean}</div>
+      <button class="quiz-listen" id="quizListenBtn">🔊 ຟັງສຽງ</button>
+    </div>
+    <div class="quiz-choices" id="quizChoices">
+      ${q.choices.map((c) => `<button class="choice-btn" data-choice="${escapeAttr(c)}">${c}</button>`).join("")}
+    </div>
+    <div class="quiz-next" id="quizNextWrap"></div>
+  `;
+
+  document.getElementById("quizListenBtn").addEventListener("click", () => speak(q.korean));
+  app.querySelectorAll(".choice-btn").forEach((btn) => {
+    btn.addEventListener("click", () => onExamChoiceSelected(btn, q));
+  });
+}
+
+function onExamChoiceSelected(btn, q) {
+  if (examQuizState.answered) return;
+  examQuizState.answered = true;
+  const chosen = btn.dataset.choice;
+  if (chosen === q.answer) examQuizState.score++;
+
+  app.querySelectorAll(".choice-btn").forEach((b) => {
+    b.disabled = true;
+    if (b.dataset.choice === q.answer) b.classList.add("correct");
+    else if (b === btn) b.classList.add("wrong");
+  });
+
+  const isLast = examQuizState.index === examQuizState.questions.length - 1;
+  const nextWrap = document.getElementById("quizNextWrap");
+  nextWrap.innerHTML = `<button class="btn-primary" id="quizNextBtn">${isLast ? "ເບິ່ງຄະແນນ" : "ຄຳຖາມຕໍ່ໄປ →"}</button>`;
+  document.getElementById("quizNextBtn").addEventListener("click", () => {
+    if (isLast) {
+      finishExamQuiz();
+    } else {
+      examQuizState.index++;
+      examQuizState.answered = false;
+      renderExamQuizQuestion();
+    }
+  });
+}
+
+function finishExamQuiz() {
+  const { score, questions } = examQuizState;
+  const total = questions.length;
+  const name = getCurrentExamTaker();
+  addExamResult(name, score, total);
+  examQuizState = null;
+  navigate(`#/examresult/${score}/${total}`);
+}
+
+// ---------- Official exam: result ----------
+function renderExamResult(score, total) {
+  backBtn.classList.remove("hidden");
+  topTitle.textContent = "ຜົນສອບເສັງ";
+  const name = getCurrentExamTaker();
+  const pct = total ? Math.round((score / total) * 100) : 0;
+  const passed = pct >= 70;
+
+  app.innerHTML = `
+    <div class="result-box">
+      <div class="result-emoji">${passed ? "🎉" : "💪"}</div>
+      <div class="result-score">${score} / ${total}</div>
+      <div class="result-msg ${passed ? "pass" : "fail"}">
+        ${name ? name + " — " : ""}${passed ? "ຜ່ານການສອບເສັງ!" : "ຍັງບໍ່ຜ່ານ (ຕ້ອງໄດ້ 70% ຂຶ້ນໄປ)"}
+      </div>
+      <button class="btn-primary" id="nextTakerBtn">👤 ນັກຮຽນຄົນຕໍ່ໄປ</button>
+      <button class="btn-secondary" id="examHomeBtn">🏠 ໜ້າຫຼັກ</button>
+    </div>
+  `;
+
+  document.getElementById("nextTakerBtn").addEventListener("click", () => {
+    clearCurrentExamTaker();
+    navigate("#/examname");
+  });
+  document.getElementById("examHomeBtn").addEventListener("click", () => {
+    clearCurrentExamTaker();
+    navigate("#/home");
+  });
+}
+
+// ---------- Admin: edit official exam questions ----------
+let examEditDraft = null;
+
+function renderExamEdit() {
+  backBtn.classList.remove("hidden");
+  topTitle.textContent = "ແກ້ໄຂຄຳຖາມສອບເສັງ";
+
+  const cfg = loadExamConfig();
+  examEditDraft = {
+    questions: cfg.questions.map((q) => Object.assign({}, q)),
+  };
+  renderExamEditView();
+}
+
+function examEditRowHtml(it, i) {
+  return `
+    <div class="edit-row" data-idx="${i}">
+      <div class="edit-row-head">
+        <span class="edit-row-num">#${i + 1}</span>
+        <button class="icon-btn-sm shuffle-row" data-idx="${i}" title="ສຸ່ມຄຳຖາມໃໝ່ແທນຂໍ້ນີ້">🔄</button>
+        <button class="icon-btn-sm delete-row" data-idx="${i}" title="ລຶບ">🗑️</button>
+      </div>
+      <div class="edit-grid">
+        <div>
+          <label>ພາສາເກົາຫຼີ</label>
+          <input class="edit-input f-korean" value="${escapeAttr(it.korean || "")}" />
+        </div>
+        <div>
+          <label>ຄຳອ່ານພາສາລາວ</label>
+          <input class="edit-input f-phonetic" value="${escapeAttr(it.lao_phonetic || "")}" />
+        </div>
+        <div class="full-span">
+          <label>ຄວາມໝາຍພາສາລາວ</label>
+          <input class="edit-input f-meaning" value="${escapeAttr(it.lao_meaning || "")}" />
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderExamEditView() {
+  app.innerHTML = `
+    <div class="intro edit-intro">
+      <h2>📝 ແກ້ໄຂຄຳຖາມສອບເສັງ</h2>
+      <p>ແກ້ໄຂ, ສຸ່ມແທນ, ຫຼືລຶບ ຄຳຖາມສອບເສັງ. ປັດຈຸບັນມີ ${examEditDraft.questions.length} ຂໍ້.</p>
+    </div>
+    <div id="editRows">${examEditDraft.questions.map((it, i) => examEditRowHtml(it, i)).join("")}</div>
+    <button class="btn-secondary" id="addExamRowBtn">➕ ເພີ່ມຄຳຖາມສຸ່ມ 1 ຂໍ້</button>
+    <div class="lesson-footer edit-footer">
+      <button class="btn-primary" id="saveExamEditBtn">💾 ບັນທຶກ</button>
+      <button class="btn-secondary" id="cancelExamEditBtn">← ກັບຄືນ (ບໍ່ບັນທຶກ)</button>
+    </div>
+  `;
+
+  bindExamEditRowInputs();
+
+  document.getElementById("addExamRowBtn").addEventListener("click", () => {
+    const used = new Set(examEditDraft.questions.map((q) => q.korean));
+    const pool = getLessons().flatMap(allItems).filter((it) => it.korean && it.lao_meaning && !used.has(it.korean));
+    if (!pool.length) {
+      alert("ບໍ່ມີຄຳສັບເຫຼືອໃຫ້ສຸ່ມແລ້ວ");
+      return;
+    }
+    const pick = shuffle(pool)[0];
+    examEditDraft.questions.push({ korean: pick.korean, lao_phonetic: pick.lao_phonetic, lao_meaning: pick.lao_meaning });
+    renderExamEditView();
+  });
+
+  document.getElementById("saveExamEditBtn").addEventListener("click", () => {
+    const cfg = loadExamConfig();
+    cfg.questions = examEditDraft.questions.filter((q) => q.korean || q.lao_phonetic || q.lao_meaning);
+    saveExamConfig(cfg);
+    examEditDraft = null;
+    alert("ບັນທຶກສຳເລັດແລ້ວ!");
+    navigate("#/students");
+  });
+  document.getElementById("cancelExamEditBtn").addEventListener("click", () => {
+    examEditDraft = null;
+    navigate("#/students");
+  });
+}
+
+function bindExamEditRowInputs() {
+  document.querySelectorAll(".edit-row").forEach((rowEl) => {
+    const idx = Number(rowEl.dataset.idx);
+    rowEl.querySelector(".f-korean").addEventListener("input", (e) => { examEditDraft.questions[idx].korean = e.target.value; });
+    rowEl.querySelector(".f-phonetic").addEventListener("input", (e) => { examEditDraft.questions[idx].lao_phonetic = e.target.value; });
+    rowEl.querySelector(".f-meaning").addEventListener("input", (e) => { examEditDraft.questions[idx].lao_meaning = e.target.value; });
+    rowEl.querySelector(".delete-row").addEventListener("click", () => {
+      examEditDraft.questions.splice(idx, 1);
+      renderExamEditView();
+    });
+    rowEl.querySelector(".shuffle-row").addEventListener("click", () => {
+      const used = new Set(examEditDraft.questions.map((q) => q.korean));
+      const pool = getLessons().flatMap(allItems).filter((it) => it.korean && it.lao_meaning && !used.has(it.korean));
+      if (!pool.length) {
+        alert("ບໍ່ມີຄຳສັບເຫຼືອໃຫ້ສຸ່ມແລ້ວ");
+        return;
+      }
+      const pick = shuffle(pool)[0];
+      examEditDraft.questions[idx] = { korean: pick.korean, lao_phonetic: pick.lao_phonetic, lao_meaning: pick.lao_meaning };
+      renderExamEditView();
+    });
+  });
 }

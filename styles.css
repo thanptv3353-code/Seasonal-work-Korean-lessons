@@ -516,6 +516,7 @@ body { padding-bottom: 40px; }
   grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
+.edit-grid .full-span { grid-column: 1 / -1; }
 .edit-grid label {
   display: block;
   font-size: .75rem;
