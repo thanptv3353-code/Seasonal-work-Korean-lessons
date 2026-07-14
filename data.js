@@ -12,37 +12,37 @@ const LESSONS = [
         "items": [
           {
             "korean": "안녕하세요",
-            "lao_phonetic": "ອັນຍອງຮາເຊໂຍ",
+            "lao_phonetic": "ອັນຍອງຮາເຊໂຢ",
             "lao_meaning": "ສະບາຍດີ",
             "boss_korean_phonetic": "싸바이디"
           },
           {
             "korean": "안녕 / 왔어?",
-            "lao_phonetic": "ອັນ-ຍອງ / ວັດ-ເອາະ?",
+            "lao_phonetic": "ອັນ-ຍອງ / ວັດ-ເຊາະ?",
             "lao_meaning": "ສະບາຍດີ / ມາແລ້ວບໍ?",
             "boss_korean_phonetic": "싸바이디/마 래우 버?"
           },
           {
             "korean": "잘 지냈어요?",
-            "lao_phonetic": "ຈັລ ຈິແອນຊິໂຢະ?",
+            "lao_phonetic": "ຈັລ ຈິແນຊໍໂຢະ?",
             "lao_meaning": "ສະບາຍດີບໍ່?",
             "boss_korean_phonetic": "싸바이 디 버?"
           },
           {
             "korean": "네, 잘지냈어요",
-            "lao_phonetic": "ແນ, ຈັລ ຈິແອນຊິໂຢ",
+            "lao_phonetic": "ແນ, ຈັລ ຈິແນຊໍໂຢະ",
             "lao_meaning": "ໂດຍ, ຂ້ອຍສະບາຍດີ",
             "boss_korean_phonetic": "도이, 커이 싸바이 디"
           },
           {
             "korean": "이름이 뭐예요?",
-            "lao_phonetic": "ອິລິມິ ມໍເຢໂຢະ",
+            "lao_phonetic": "ອິລືມິ ມໍເຢໂະ",
             "lao_meaning": "ເຈົ້າຊື່ຫຍັງ?",
             "boss_korean_phonetic": "짜우 쓰 냥"
           },
           {
             "korean": "반갑습니다",
-            "lao_phonetic": "ພັນກັບຊຶ້ມບິດາ",
+            "lao_phonetic": "ພັນກັບຊຶມນີດາ",
             "lao_meaning": "ຍິນດີທີ່ໄດ້ຮູ້ຈັກ",
             "boss_korean_phonetic": "닌디 티다이 후짝"
           },
