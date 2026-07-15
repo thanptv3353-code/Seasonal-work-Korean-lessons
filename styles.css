@@ -182,6 +182,11 @@ body { padding-bottom: 40px; }
   color: var(--blue-dark);
   line-height: 1.35;
 }
+.vocab-icon {
+  display: inline-block;
+  margin-right: 8px;
+  font-size: 1.15em;
+}
 .vocab-korean {
   font-size: .88rem;
   color: var(--text-mute);
@@ -434,6 +439,14 @@ body { padding-bottom: 40px; }
 .admin-tools h3 { margin: 0 0 6px; font-size: 1.05rem; }
 .admin-hint { margin: 0 0 14px; font-size: .85rem; color: var(--text-mute); }
 .edit-links { display: flex; flex-direction: column; gap: 8px; }
+.edit-topic-group { margin-bottom: 18px; }
+.edit-topic-group:last-child { margin-bottom: 0; }
+.edit-topic-title {
+  font-weight: 700;
+  font-size: .95rem;
+  color: var(--blue-dark);
+  margin-bottom: 8px;
+}
 .lesson-edit-btn {
   background: #eef3ff;
   border: none;

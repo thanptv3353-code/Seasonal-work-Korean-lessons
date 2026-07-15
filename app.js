@@ -12,6 +12,8 @@ function lockAdmin() {
 }
 
 // ---------- Student registry & progress storage ----------
+// Progress is keyed by sub-lesson id (e.g. "dl-3"), same storage shape works
+// whether the id refers to a top-level lesson or a sub-lesson.
 const STORAGE_KEY = "kolo_students_v1";
 const CURRENT_KEY = "kolo_current_student";
 
@@ -56,17 +58,17 @@ function saveProgress(p) {
   students[name] = p;
   saveStudents(students);
 }
-function getLessonProgress(lessonId) {
+function getLessonProgress(subId) {
   const p = loadProgress();
-  return p[lessonId] || { viewed: false, bestScore: 0, bestTotal: 0, passed: false };
+  return p[subId] || { viewed: false, bestScore: 0, bestTotal: 0, passed: false };
 }
-function setLessonProgress(lessonId, patch) {
+function setLessonProgress(subId, patch) {
   const p = loadProgress();
-  p[lessonId] = Object.assign(getLessonProgress(lessonId), patch);
+  p[subId] = Object.assign(getLessonProgress(subId), patch);
   saveProgress(p);
 }
 
-// ---------- Lesson content overrides (admin edits) ----------
+// ---------- Lesson content overrides (admin edits, keyed by sub-lesson id) ----------
 const CONTENT_KEY = "kolo_content_overrides_v1";
 
 function loadOverrides() {
@@ -110,19 +112,52 @@ function groupIntoSections(flatItems) {
   return sections;
 }
 
-function getLessons() {
+// ---------- Topic / sub-lesson data access ----------
+function getTopics() {
   const overrides = loadOverrides();
-  return LESSONS.map((lesson) => {
-    const ov = overrides[lesson.id];
-    if (!ov) return lesson;
-    return {
-      id: lesson.id,
-      icon: ov.icon != null && ov.icon !== "" ? ov.icon : lesson.icon,
-      title_lo: ov.title_lo != null && ov.title_lo !== "" ? ov.title_lo : lesson.title_lo,
-      title_ko: ov.title_ko != null && ov.title_ko !== "" ? ov.title_ko : lesson.title_ko,
-      sections: groupIntoSections(ov.flatItems),
-    };
-  });
+  return LESSONS.map((topic) => ({
+    id: topic.id,
+    icon: topic.icon,
+    title_lo: topic.title_lo,
+    title_ko: topic.title_ko,
+    subLessons: topic.subLessons.map((sub) => {
+      const ov = overrides[sub.id];
+      const merged = !ov ? sub : {
+        id: sub.id,
+        icon: ov.icon != null && ov.icon !== "" ? ov.icon : sub.icon,
+        title_lo: ov.title_lo != null && ov.title_lo !== "" ? ov.title_lo : sub.title_lo,
+        title_ko: ov.title_ko != null && ov.title_ko !== "" ? ov.title_ko : sub.title_ko,
+        sections: groupIntoSections(ov.flatItems),
+      };
+      return Object.assign({}, merged, {
+        topicId: topic.id,
+        topicTitle_lo: topic.title_lo,
+        topicIcon: topic.icon,
+      });
+    }),
+  }));
+}
+
+function getAllSubLessons() {
+  return getTopics().flatMap((t) => t.subLessons);
+}
+
+function findTopic(topicId) {
+  return getTopics().find((t) => t.id === topicId);
+}
+function findLesson(subId) {
+  return getAllSubLessons().find((s) => s.id === subId);
+}
+function allItems(lesson) {
+  return lesson.sections.flatMap((s) => s.items);
+}
+function shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
 }
 
 // ---------- Official exam (separate from practice quizzes) ----------
@@ -141,7 +176,7 @@ function saveExamConfig(cfg) {
   localStorage.setItem(EXAM_CONFIG_KEY, JSON.stringify(cfg));
 }
 function generateExamQuestions(count) {
-  const pool = getLessons().flatMap(allItems).filter((it) => it.korean && it.lao_meaning);
+  const pool = getAllSubLessons().flatMap(allItems).filter((it) => it.korean && it.lao_meaning);
   return shuffle(pool).slice(0, Math.min(count, pool.length)).map((it) => ({
     korean: it.korean,
     lao_phonetic: it.lao_phonetic,
@@ -171,22 +206,6 @@ function addExamResult(name, score, total) {
   const list = loadExamResults();
   list.push({ name: name.trim(), score, total, timestamp: Date.now() });
   saveExamResults(list);
-}
-
-// ---------- Helpers ----------
-function findLesson(id) {
-  return getLessons().find((l) => l.id === id);
-}
-function allItems(lesson) {
-  return lesson.sections.flatMap((s) => s.items);
-}
-function shuffle(arr) {
-  const a = arr.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
 }
 
 // ---------- Text to speech ----------
@@ -237,11 +256,16 @@ function navigate(hash) {
 }
 backBtn.addEventListener("click", () => {
   const parts = currentRoute();
-  if (parts.view === "lesson" || parts.view === "quiz" || parts.view === "students") navigate("#/home");
-  else if (parts.view === "edit" || parts.view === "examedit") navigate("#/students");
-  else if (parts.view === "result") navigate("#/lesson/" + parts.id);
-  else if (parts.view === "examquiz" || parts.view === "examresult") navigate("#/examname");
-  else navigate("#/home");
+  if (parts.view === "topic" || parts.view === "students") return navigate("#/home");
+  if (parts.view === "lesson") {
+    const sub = findLesson(parts.id);
+    return navigate(sub ? "#/topic/" + sub.topicId : "#/home");
+  }
+  if (parts.view === "quiz") return navigate("#/lesson/" + parts.id);
+  if (parts.view === "result") return navigate("#/lesson/" + parts.id);
+  if (parts.view === "edit" || parts.view === "examedit") return navigate("#/students");
+  if (parts.view === "examquiz" || parts.view === "examresult") return navigate("#/examname");
+  navigate("#/home");
 });
 studentBtn.addEventListener("click", () => navigate("#/name"));
 
@@ -255,6 +279,7 @@ function currentRoute() {
   if (parts[0] === "examname") return { view: "examname" };
   if (parts[0] === "examquiz") return { view: "examquiz" };
   if (parts[0] === "examresult") return { view: "examresult", score: parts[1], total: parts[2] };
+  if (parts[0] === "topic") return { view: "topic", id: parts[1] };
   if (parts[0] === "lesson") return { view: "lesson", id: parts[1] };
   if (parts[0] === "quiz") return { view: "quiz", id: parts[1] };
   if (parts[0] === "result") return { view: "result", id: parts[1], score: parts[2], total: parts[3] };
@@ -271,7 +296,7 @@ function render() {
   const route = currentRoute();
   window.scrollTo(0, 0);
 
-  const needsStudent = ["home", "lesson", "quiz", "result"].includes(route.view);
+  const needsStudent = ["home", "topic", "lesson", "quiz", "result"].includes(route.view);
   if (needsStudent && !getCurrentStudent()) return navigate("#/name");
 
   const needsAdmin = route.view === "students" || route.view === "edit" || route.view === "examedit";
@@ -286,6 +311,7 @@ function render() {
   if (route.view === "examname") return renderExamNameEntry();
   if (route.view === "examquiz") return renderExamQuiz();
   if (route.view === "examresult") return renderExamResult(Number(route.score), Number(route.total));
+  if (route.view === "topic") return renderTopic(route.id);
   if (route.view === "home") return renderHome();
   if (route.view === "lesson") return renderLesson(route.id);
   if (route.view === "quiz") return renderQuiz(route.id);
@@ -371,8 +397,6 @@ function renderAdminGate(targetHash) {
   const tryUnlock = () => {
     if (input.value === ADMIN_PIN) {
       sessionStorage.setItem(ADMIN_UNLOCK_KEY, "1");
-      // navigate() is a no-op when already on targetHash (no hashchange fires for an
-      // identical URL), which is the common case here — re-render directly instead.
       if (window.location.hash === targetHash) render();
       else navigate(targetHash);
     } else {
@@ -393,29 +417,40 @@ function renderStudents() {
   backBtn.classList.remove("hidden");
   topTitle.textContent = "ລາຍຊື່ນັກຮຽນ";
 
-  const lessons = getLessons();
+  const topics = getTopics();
   const students = loadStudents();
   const names = Object.keys(students).sort((a, b) => a.localeCompare(b, "lo"));
 
   const rows = names.map((name) => {
     const prog = students[name] || {};
-    const lessonBadges = lessons.map((lesson) => {
-      const lp = prog[lesson.id];
-      if (!lp || (!lp.viewed && !lp.bestTotal)) return `<span class="mini-badge not-started" title="${lesson.title_lo}">${lesson.icon}</span>`;
-      if (lp.passed) return `<span class="mini-badge passed" title="${lesson.title_lo}: ${lp.bestScore}/${lp.bestTotal}">${lesson.icon}✓</span>`;
-      if (lp.bestTotal) return `<span class="mini-badge failed" title="${lesson.title_lo}: ${lp.bestScore}/${lp.bestTotal}">${lesson.icon}✕</span>`;
-      return `<span class="mini-badge in-progress" title="${lesson.title_lo}">${lesson.icon}</span>`;
+    const topicBadges = topics.map((topic) => {
+      const subs = topic.subLessons;
+      const passedCount = subs.filter((s) => prog[s.id] && prog[s.id].passed).length;
+      const anyStarted = subs.some((s) => prog[s.id] && (prog[s.id].viewed || prog[s.id].bestTotal));
+      let cls = "not-started";
+      if (passedCount === subs.length) cls = "passed";
+      else if (passedCount > 0) cls = "in-progress";
+      else if (anyStarted) cls = "in-progress";
+      return `<span class="mini-badge ${cls}" title="${topic.title_lo}: ${passedCount}/${subs.length} ຜ່ານ">${topic.icon} ${passedCount}/${subs.length}</span>`;
     }).join("");
-    const passedCount = lessons.filter((l) => prog[l.id] && prog[l.id].passed).length;
+    const totalSubs = topics.reduce((n, t) => n + t.subLessons.length, 0);
+    const totalPassed = topics.reduce((n, t) => n + t.subLessons.filter((s) => prog[s.id] && prog[s.id].passed).length, 0);
     return `
       <div class="roster-row">
         <div class="roster-name">${name}</div>
-        <div class="roster-badges">${lessonBadges}</div>
-        <div class="roster-summary">${passedCount}/${lessons.length} ບົດຜ່ານ</div>
+        <div class="roster-badges">${topicBadges}</div>
+        <div class="roster-summary">${totalPassed}/${totalSubs} ບົດຜ່ານ</div>
       </div>`;
   }).join("");
 
-  const editLinks = lessons.map((l, i) => `<button class="lesson-edit-btn" data-id="${l.id}">✏️ ${i + 1}. ${l.title_lo}</button>`).join("");
+  const editSections = topics.map((topic) => `
+    <div class="edit-topic-group">
+      <div class="edit-topic-title">${topic.icon} ${topic.title_lo}</div>
+      <div class="edit-links">
+        ${topic.subLessons.map((s) => `<button class="lesson-edit-btn" data-id="${s.id}">✏️ ${s.title_lo}</button>`).join("")}
+      </div>
+    </div>
+  `).join("");
 
   const examCfg = loadExamConfig();
   const examResults = loadExamResults()
@@ -438,19 +473,19 @@ function renderStudents() {
   app.innerHTML = `
     <div class="intro">
       <h2>ລາຍຊື່ນັກຮຽນ 📋</h2>
-      <p>ຮ່ວມທັງໝົດ ${names.length} ຄົນ (ລຽງຕາມຕົວອັກສອນ). ໄອຄອນສີຂຽວ = ຜ່ານ, ສີແດງ = ຍັງບໍ່ຜ່ານ, ສີເທົາ = ຍັງບໍ່ໄດ້ຮຽນ.</p>
+      <p>ຮ່ວມທັງໝົດ ${names.length} ຄົນ (ລຽງຕາມຕົວອັກສອນ). ໄອຄອນສີຂຽວ = ຜ່ານໝົດ, ສີເຫຼືອງ = ກຳລັງຮຽນ, ສີເທົາ = ຍັງບໍ່ໄດ້ຮຽນ.</p>
     </div>
     ${names.length ? `<div class="roster-list">${rows}</div>` : '<div class="empty-msg">ຍັງບໍ່ມີນັກຮຽນລົງທະບຽນ</div>'}
 
     <div class="admin-tools">
       <h3>✏️ ແກ້ໄຂບົດຮຽນ</h3>
-      <p class="admin-hint">ເລືອກບົດຮຽນເພື່ອແກ້ໄຂ, ເພີ່ມ, ຫຼືລຶບຄຳສັບ/ປະໂຫຍກ.</p>
-      <div class="edit-links">${editLinks}</div>
+      <p class="admin-hint">ເລືອກບົດຮຽນຍ່ອຍເພື່ອແກ້ໄຂ, ເພີ່ມ, ຫຼືລຶບຄຳສັບ/ປະໂຫຍກ.</p>
+      ${editSections}
     </div>
 
     <div class="admin-tools">
       <h3>📝 ຈັດການບົດສອບເສັງທາງການ</h3>
-      <p class="admin-hint">ບົດສອບເສັງນີ້ແຍກຕ່າງຫາກຈາກແບບທົດສອບຝຶກຫັດປົກກະຕິ — ໃຊ້ 30 ຂໍ້ ສຸ່ມຈາກທັງ 5 ບົດ. ເປີດສະເພາະຍາມທີ່ຈະສອບເສັງແທ້ໆ.</p>
+      <p class="admin-hint">ບົດສອບເສັງນີ້ແຍກຕ່າງຫາກຈາກແບບທົດສອບຝຶກຫັດປົກກະຕິ — ໃຊ້ 30 ຂໍ້ ສຸ່ມຈາກທຸກບົດ. ເປີດສະເພາະຍາມທີ່ຈະສອບເສັງແທ້ໆ.</p>
       <button class="btn-secondary" id="toggleExamBtn">${examCfg.enabled ? "🔴 ປິດຮັບລົງທະບຽນສອບເສັງ" : "🟢 ເປີດຮັບລົງທະບຽນສອບເສັງ"}</button>
       <button class="btn-secondary" id="regenExamBtn">🎲 ສຸ່ມຄຳຖາມ 30 ຂໍ້ໃໝ່</button>
       <button class="btn-secondary" id="editExamBtn">✏️ ແກ້ໄຂຄຳຖາມສອບເສັງ (${examCfg.questions.length} ຂໍ້)</button>
@@ -520,7 +555,15 @@ function downloadTextFile(filename, text) {
   URL.revokeObjectURL(url);
 }
 function exportDataJs() {
-  const merged = getLessons();
+  const merged = getTopics().map((t) => ({
+    id: t.id,
+    icon: t.icon,
+    title_lo: t.title_lo,
+    title_ko: t.title_ko,
+    subLessons: t.subLessons.map((s) => ({
+      id: s.id, icon: s.icon, title_lo: s.title_lo, title_ko: s.title_ko, sections: s.sections,
+    })),
+  }));
   const js = "// Transcribed content from the Korean-Lao textbook for seasonal workers.\nconst LESSONS = " + JSON.stringify(merged, null, 2) + ";\n";
   downloadTextFile("data.js", js);
 }
@@ -542,30 +585,31 @@ function importOverridesBackup(file) {
   reader.readAsText(file);
 }
 
-// ---------- Home view ----------
+// ---------- Home view (5 topics) ----------
 function renderHome() {
   backBtn.classList.add("hidden");
   topTitle.textContent = "ຮຽນພາສາເກົາຫຼີ";
 
-  const lessons = getLessons();
-  const cards = lessons.map((lesson, i) => {
-    const prog = getLessonProgress(lesson.id);
+  const topics = getTopics();
+  const prog = loadProgress();
+  const cards = topics.map((topic, i) => {
+    const subs = topic.subLessons;
+    const passedCount = subs.filter((s) => prog[s.id] && prog[s.id].passed).length;
+    const anyStarted = subs.some((s) => prog[s.id] && (prog[s.id].viewed || prog[s.id].bestTotal));
     let badge = '<span class="badge not-started">ຍັງບໍ່ໄດ້ຮຽນ</span>';
-    if (prog.passed) {
-      badge = `<span class="badge passed">ຜ່ານ ${prog.bestScore}/${prog.bestTotal}</span>`;
-    } else if (prog.bestTotal > 0) {
-      badge = `<span class="badge failed">ຄະແນນ ${prog.bestScore}/${prog.bestTotal}</span>`;
-    } else if (prog.viewed) {
-      badge = '<span class="badge in-progress">ກຳລັງຮຽນ</span>';
+    if (passedCount === subs.length) {
+      badge = `<span class="badge passed">ຜ່ານໝົດ ${passedCount}/${subs.length}</span>`;
+    } else if (anyStarted) {
+      badge = `<span class="badge in-progress">${passedCount}/${subs.length} ບົດຜ່ານ</span>`;
     }
-    const itemCount = allItems(lesson).length;
+    const itemCount = subs.reduce((n, s) => n + allItems(s).length, 0);
     return `
-      <div class="lesson-card" data-id="${lesson.id}">
-        <div class="lesson-icon">${lesson.icon || "📘"}</div>
+      <div class="lesson-card" data-id="${topic.id}">
+        <div class="lesson-icon">${topic.icon || "📘"}</div>
         <div class="lesson-info">
-          <div class="title-lo">${i + 1}. ${lesson.title_lo}</div>
-          <div class="title-ko ko">${lesson.title_ko || ""}</div>
-          <div class="meta">${itemCount} ຄຳ/ປະໂຫຍກ</div>
+          <div class="title-lo">${i + 1}. ${topic.title_lo}</div>
+          <div class="title-ko ko">${topic.title_ko || ""}</div>
+          <div class="meta">${subs.length} ໝວດຍ່ອຍ · ${itemCount} ຄຳ/ປະໂຫຍກ</div>
         </div>
         ${badge}
       </div>`;
@@ -574,7 +618,7 @@ function renderHome() {
   app.innerHTML = `
     <div class="intro">
       <h2>ສະບາຍດີ 👋</h2>
-      <p>ຮຽນຄຳສັບ ແລະ ປະໂຫຍກພາສາເກົາຫຼີທີ່ຈຳເປັນສຳລັບແຮງງານລະດູການ. ອ່ານຄຳອ່ານພາສາລາວ ຟັງສຽງ ແລ້ວທົດລອງເຮັດແບບທົດສອບຫຼັງຈົບແຕ່ລະບົດ.</p>
+      <p>ຮຽນຄຳສັບ ແລະ ປະໂຫຍກພາສາເກົາຫຼີທີ່ຈຳເປັນສຳລັບແຮງງານລະດູການ. ອ່ານຄຳອ່ານພາສາລາວ ຟັງສຽງ ແລ້ວທົດລອງເຮັດແບບທົດສອບຫຼັງຈົບແຕ່ລະໝວດ.</p>
     </div>
     <div class="lesson-list">${cards}</div>
     <button class="link-btn" id="examLinkBtn">📝 ລົງຊື່ເຂົ້າສອບເສັງ (ສະເພາະສອບເສັງທາງການ)</button>
@@ -582,19 +626,62 @@ function renderHome() {
   `;
 
   app.querySelectorAll(".lesson-card").forEach((el) => {
-    el.addEventListener("click", () => navigate("#/lesson/" + el.dataset.id));
+    el.addEventListener("click", () => navigate("#/topic/" + el.dataset.id));
   });
   document.getElementById("examLinkBtn").addEventListener("click", () => navigate("#/examname"));
   document.getElementById("rosterLinkBtn").addEventListener("click", () => navigate("#/students"));
 }
 
+// ---------- Topic view (sub-lesson list within a topic) ----------
+function renderTopic(topicId) {
+  const topic = findTopic(topicId);
+  if (!topic) return navigate("#/home");
+  backBtn.classList.remove("hidden");
+  topTitle.textContent = topic.title_lo;
+
+  const cards = topic.subLessons.map((sub, i) => {
+    const prog = getLessonProgress(sub.id);
+    let badge = '<span class="badge not-started">ຍັງບໍ່ໄດ້ຮຽນ</span>';
+    if (prog.passed) {
+      badge = `<span class="badge passed">ຜ່ານ ${prog.bestScore}/${prog.bestTotal}</span>`;
+    } else if (prog.bestTotal > 0) {
+      badge = `<span class="badge failed">ຄະແນນ ${prog.bestScore}/${prog.bestTotal}</span>`;
+    } else if (prog.viewed) {
+      badge = '<span class="badge in-progress">ກຳລັງຮຽນ</span>';
+    }
+    const itemCount = allItems(sub).length;
+    return `
+      <div class="lesson-card" data-id="${sub.id}">
+        <div class="lesson-icon">${sub.icon || "📘"}</div>
+        <div class="lesson-info">
+          <div class="title-lo">${i + 1}. ${sub.title_lo}</div>
+          <div class="title-ko ko">${sub.title_ko || ""}</div>
+          <div class="meta">${itemCount} ຄຳ/ປະໂຫຍກ</div>
+        </div>
+        ${badge}
+      </div>`;
+  }).join("");
+
+  app.innerHTML = `
+    <div class="intro">
+      <h2>${topic.icon} ${topic.title_lo}</h2>
+      <p>ເລືອກໝວດຍ່ອຍທີ່ຢາກຮຽນ. ຮຽນຈົບແຕ່ລະໝວດແລ້ວລອງເຮັດແບບທົດສອບ.</p>
+    </div>
+    <div class="lesson-list">${cards}</div>
+  `;
+
+  app.querySelectorAll(".lesson-card").forEach((el) => {
+    el.addEventListener("click", () => navigate("#/lesson/" + el.dataset.id));
+  });
+}
+
 // ---------- Lesson view ----------
-function renderLesson(lessonId) {
-  const lesson = findLesson(lessonId);
+function renderLesson(subId) {
+  const lesson = findLesson(subId);
   if (!lesson) return navigate("#/home");
   backBtn.classList.remove("hidden");
   topTitle.textContent = lesson.title_lo;
-  setLessonProgress(lessonId, { viewed: true });
+  setLessonProgress(subId, { viewed: true });
 
   const navChips = lesson.sections
     .map((s, i) => (s.title_lo ? { title: s.title_lo, id: `sec-${i}` } : null))
@@ -609,11 +696,12 @@ function renderLesson(lessonId) {
         <div class="vocab-meaning">${item.lao_meaning}</div>
       </div>`;
       }
+      const icon = item.icon ? `<span class="vocab-icon">${item.icon}</span>` : "";
       return `
       <div class="vocab-card">
         <div class="vocab-row">
           <div class="vocab-main">
-            <div class="vocab-phonetic">${item.lao_phonetic || ""}</div>
+            <div class="vocab-phonetic">${icon}${item.lao_phonetic || ""}</div>
             ${item.korean ? `<div class="vocab-korean ko">${item.korean}</div>` : ""}
           </div>
           ${item.korean ? `<button class="speak-btn" data-text="${escapeAttr(item.korean)}" aria-label="ຟັງສຽງ">🔊</button>` : ""}
@@ -641,7 +729,7 @@ function renderLesson(lessonId) {
     ${sectionsHtml}
     <div class="lesson-footer">
       <button class="btn-primary" id="startQuizBtn">📝 ເລີ່ມເຮັດແບບທົດສອບ</button>
-      <button class="btn-secondary" id="backHomeBtn">← ກັບໄປໜ້າຫຼັກ</button>
+      <button class="btn-secondary" id="backTopicBtn">← ກັບໄປໝວດ${lesson.topicTitle_lo ? " " + lesson.topicTitle_lo : ""}</button>
     </div>
   `;
 
@@ -654,8 +742,8 @@ function renderLesson(lessonId) {
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   });
-  document.getElementById("startQuizBtn").addEventListener("click", () => navigate("#/quiz/" + lessonId));
-  document.getElementById("backHomeBtn").addEventListener("click", () => navigate("#/home"));
+  document.getElementById("startQuizBtn").addEventListener("click", () => navigate("#/quiz/" + subId));
+  document.getElementById("backTopicBtn").addEventListener("click", () => navigate("#/topic/" + lesson.topicId));
 }
 
 function escapeAttr(s) {
@@ -668,7 +756,7 @@ let quizState = null;
 function buildQuiz(lesson) {
   const items = allItems(lesson);
   const questionable = items.filter((it) => it.korean);
-  const otherLessonItems = getLessons().filter((l) => l.id !== lesson.id).flatMap(allItems);
+  const otherItems = getAllSubLessons().filter((l) => l.id !== lesson.id).flatMap(allItems);
   const pool = shuffle(questionable).slice(0, Math.min(10, questionable.length));
 
   const questions = pool.map((correctItem) => {
@@ -677,7 +765,7 @@ function buildQuiz(lesson) {
     );
     let distractors = distractSource.slice(0, 3);
     if (distractors.length < 3) {
-      const extra = shuffle(otherLessonItems.filter((it) => it.lao_meaning !== correctItem.lao_meaning));
+      const extra = shuffle(otherItems.filter((it) => it.lao_meaning !== correctItem.lao_meaning));
       distractors = distractors.concat(extra.slice(0, 3 - distractors.length));
     }
     const choices = shuffle([correctItem.lao_meaning, ...distractors.map((d) => d.lao_meaning)]);
@@ -692,15 +780,15 @@ function buildQuiz(lesson) {
   return questions;
 }
 
-function renderQuiz(lessonId) {
-  const lesson = findLesson(lessonId);
+function renderQuiz(subId) {
+  const lesson = findLesson(subId);
   if (!lesson) return navigate("#/home");
   backBtn.classList.remove("hidden");
   topTitle.textContent = "ແບບທົດສອບ";
 
-  if (!quizState || quizState.lessonId !== lessonId) {
+  if (!quizState || quizState.lessonId !== subId) {
     quizState = {
-      lessonId,
+      lessonId: subId,
       questions: buildQuiz(lesson),
       index: 0,
       score: 0,
@@ -711,7 +799,7 @@ function renderQuiz(lessonId) {
 }
 
 function renderQuizQuestion() {
-  const { questions, index, score } = quizState;
+  const { questions, index } = quizState;
   const total = questions.length;
   const q = questions[index];
   const pct = Math.round((index / total) * 100);
@@ -782,8 +870,8 @@ function finishQuiz() {
 }
 
 // ---------- Result view ----------
-function renderResult(lessonId, score, total) {
-  const lesson = findLesson(lessonId);
+function renderResult(subId, score, total) {
+  const lesson = findLesson(subId);
   if (!lesson) return navigate("#/home");
   backBtn.classList.remove("hidden");
   topTitle.textContent = "ຜົນຄະແນນ";
@@ -800,29 +888,31 @@ function renderResult(lessonId, score, total) {
       </div>
       <button class="btn-primary" id="retryBtn">🔁 ເຮັດແບບທົດສອບໃໝ່</button>
       <button class="btn-secondary" id="reviewBtn">📖 ທົບທວນບົດຮຽນ</button>
+      <button class="btn-secondary" id="topicBtn">📚 ໝວດ${lesson.topicTitle_lo ? " " + lesson.topicTitle_lo : ""}</button>
       <button class="btn-secondary" id="homeBtn">🏠 ໜ້າຫຼັກ</button>
     </div>
   `;
 
   document.getElementById("retryBtn").addEventListener("click", () => {
     quizState = null;
-    navigate("#/quiz/" + lessonId);
+    navigate("#/quiz/" + subId);
   });
-  document.getElementById("reviewBtn").addEventListener("click", () => navigate("#/lesson/" + lessonId));
+  document.getElementById("reviewBtn").addEventListener("click", () => navigate("#/lesson/" + subId));
+  document.getElementById("topicBtn").addEventListener("click", () => navigate("#/topic/" + lesson.topicId));
   document.getElementById("homeBtn").addEventListener("click", () => navigate("#/home"));
 }
 
 // ---------- Admin: edit lesson content ----------
 let editDraft = null;
 
-function renderEdit(lessonId) {
-  const lesson = getLessons().find((l) => l.id === lessonId);
+function renderEdit(subId) {
+  const lesson = getAllSubLessons().find((l) => l.id === subId);
   if (!lesson) return navigate("#/students");
   backBtn.classList.remove("hidden");
   topTitle.textContent = "ແກ້ໄຂ: " + lesson.title_lo;
 
   editDraft = {
-    lessonId,
+    lessonId: subId,
     icon: lesson.icon || "",
     title_lo: lesson.title_lo || "",
     title_ko: lesson.title_ko || "",
@@ -847,6 +937,10 @@ function editRowHtml(it, i) {
       </div>
       <div class="edit-grid">
         <div>
+          <label>ໄອຄອນ (ບໍ່ບັງຄັບ)</label>
+          <input class="edit-input f-icon" value="${escapeAttr(it.icon || "")}" />
+        </div>
+        <div>
           <label>ພາສາເກົາຫຼີ</label>
           <input class="edit-input f-korean" value="${escapeAttr(it.korean || "")}" />
         </div>
@@ -870,7 +964,7 @@ function renderEditView() {
   app.innerHTML = `
     <div class="intro edit-intro">
       <h2>✏️ ແກ້ໄຂບົດຮຽນ</h2>
-      <p>ແກ້ໄຂ, ເພີ່ມ, ຫຼືລຶບຄຳສັບ/ປະໂຫຍກຂອງບົດຮຽນນີ້. ການປ່ຽນແປງຈະຖືກບັນທຶກໄວ້ໃນເຄື່ອງນີ້ທັນທີທີ່ກົດ "ບັນທຶກ".</p>
+      <p>ແກ້ໄຂ, ເພີ່ມ, ຫຼືລຶບຄຳສັບ/ປະໂຫຍກຂອງໝວດນີ້. ການປ່ຽນແປງຈະຖືກບັນທຶກໄວ້ໃນເຄື່ອງນີ້ທັນທີທີ່ກົດ "ບັນທຶກ".</p>
     </div>
     <div class="edit-field-row">
       <div class="edit-field">
@@ -878,11 +972,11 @@ function renderEditView() {
         <input id="editIcon" type="text" value="${escapeAttr(editDraft.icon)}" />
       </div>
       <div class="edit-field wide">
-        <label>ຊື່ບົດຮຽນ (ພາສາລາວ)</label>
+        <label>ຊື່ໝວດ (ພາສາລາວ)</label>
         <input id="editTitleLo" type="text" value="${escapeAttr(editDraft.title_lo)}" />
       </div>
       <div class="edit-field wide">
-        <label>ຊື່ບົດຮຽນ (ພາສາເກົາຫຼີ)</label>
+        <label>ຊື່ໝວດ (ພາສາເກົາຫຼີ)</label>
         <input id="editTitleKo" type="text" value="${escapeAttr(editDraft.title_ko)}" />
       </div>
     </div>
@@ -902,7 +996,7 @@ function renderEditView() {
   bindEditRowInputs();
 
   document.getElementById("addRowBtn").addEventListener("click", () => {
-    editDraft.items.push({ section_lo: null, section_ko: null, korean: "", lao_phonetic: "", lao_meaning: "", boss_korean_phonetic: "" });
+    editDraft.items.push({ section_lo: null, section_ko: null, korean: "", lao_phonetic: "", lao_meaning: "", boss_korean_phonetic: "", icon: "" });
     renderEditView();
     const rows = document.querySelectorAll(".edit-row");
     if (rows.length) rows[rows.length - 1].scrollIntoView({ behavior: "smooth", block: "center" });
@@ -910,7 +1004,7 @@ function renderEditView() {
 
   document.getElementById("saveEditBtn").addEventListener("click", saveEditDraft);
   document.getElementById("resetEditBtn").addEventListener("click", () => {
-    if (!confirm("ຄືນຄ່າບົດຮຽນນີ້ກັບຄືນຄ່າເດີມ ແລະ ຍົກເລີກການແກ້ໄຂທັງໝົດບໍ?")) return;
+    if (!confirm("ຄືນຄ່າໝວດນີ້ກັບຄືນຄ່າເດີມ ແລະ ຍົກເລີກການແກ້ໄຂທັງໝົດບໍ?")) return;
     const overrides = loadOverrides();
     delete overrides[editDraft.lessonId];
     saveOverrides(overrides);
@@ -928,6 +1022,7 @@ function bindEditRowInputs() {
     const idx = Number(rowEl.dataset.idx);
     rowEl.querySelector(".section-lo").addEventListener("input", (e) => { editDraft.items[idx].section_lo = e.target.value || null; });
     rowEl.querySelector(".section-ko").addEventListener("input", (e) => { editDraft.items[idx].section_ko = e.target.value || null; });
+    rowEl.querySelector(".f-icon").addEventListener("input", (e) => { editDraft.items[idx].icon = e.target.value; });
     rowEl.querySelector(".f-korean").addEventListener("input", (e) => { editDraft.items[idx].korean = e.target.value; });
     rowEl.querySelector(".f-phonetic").addEventListener("input", (e) => { editDraft.items[idx].lao_phonetic = e.target.value; });
     rowEl.querySelector(".f-meaning").addEventListener("input", (e) => { editDraft.items[idx].lao_meaning = e.target.value; });
@@ -970,6 +1065,7 @@ function saveEditDraft() {
       if (it.section_ko) out.section_ko = it.section_ko;
       if (it.boss_korean_phonetic) out.boss_korean_phonetic = it.boss_korean_phonetic;
       if (it.note) out.note = it.note;
+      if (it.icon) out.icon = it.icon;
       return out;
     });
 
@@ -1050,7 +1146,7 @@ let examQuizState = null;
 function buildExamQuiz() {
   const cfg = loadExamConfig();
   const all = cfg.questions;
-  const wholePool = getLessons().flatMap(allItems).filter((it) => it.korean);
+  const wholePool = getAllSubLessons().flatMap(allItems).filter((it) => it.korean);
 
   return shuffle(all).map((correctItem) => {
     const distractSource = shuffle(all.filter((it) => it.lao_meaning !== correctItem.lao_meaning));
@@ -1234,7 +1330,7 @@ function renderExamEditView() {
 
   document.getElementById("addExamRowBtn").addEventListener("click", () => {
     const used = new Set(examEditDraft.questions.map((q) => q.korean));
-    const pool = getLessons().flatMap(allItems).filter((it) => it.korean && it.lao_meaning && !used.has(it.korean));
+    const pool = getAllSubLessons().flatMap(allItems).filter((it) => it.korean && it.lao_meaning && !used.has(it.korean));
     if (!pool.length) {
       alert("ບໍ່ມີຄຳສັບເຫຼືອໃຫ້ສຸ່ມແລ້ວ");
       return;
@@ -1270,7 +1366,7 @@ function bindExamEditRowInputs() {
     });
     rowEl.querySelector(".shuffle-row").addEventListener("click", () => {
       const used = new Set(examEditDraft.questions.map((q) => q.korean));
-      const pool = getLessons().flatMap(allItems).filter((it) => it.korean && it.lao_meaning && !used.has(it.korean));
+      const pool = getAllSubLessons().flatMap(allItems).filter((it) => it.korean && it.lao_meaning && !used.has(it.korean));
       if (!pool.length) {
         alert("ບໍ່ມີຄຳສັບເຫຼືອໃຫ້ສຸ່ມແລ້ວ");
         return;
