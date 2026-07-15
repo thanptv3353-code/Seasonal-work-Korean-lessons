@@ -146,67 +146,67 @@ const LESSONS = [
           },
           {
             "korean": "맞아요?",
-            "lao_phonetic": "ມາຈາໂຍະ?",
+            "lao_phonetic": "ມາຈາໂຢະ?",
             "lao_meaning": "ແມ່ນບໍ?",
             "boss_korean_phonetic": "맨 버?"
           },
           {
             "korean": "네, 맞아요",
-            "lao_phonetic": "ແນ, ມາຈາໂຍ",
+            "lao_phonetic": "ແນ, ມາຈາໂຢ",
             "lao_meaning": "ໂດຍ ແມ່ນແລ້ວ",
             "boss_korean_phonetic": "도이 맨 래우"
           },
           {
             "korean": "밥 먹어요",
-            "lao_phonetic": "ພັບ ສຳມາໂຍ",
+            "lao_phonetic": "ພັບ ມໍກໍໂຢ",
             "lao_meaning": "ກິນເຂົ້າ",
             "boss_korean_phonetic": "낀 카우"
           },
           {
             "korean": "목 말라요",
-            "lao_phonetic": "ມິກ ມັນລາໂຍ",
+            "lao_phonetic": "ມົກ ມັລລາໂຢ",
             "lao_meaning": "ຫິວນ້ຳ",
             "boss_korean_phonetic": "히우 남"
           },
           {
             "korean": "배고파요",
-            "lao_phonetic": "ແພໂກພາໂຍ",
+            "lao_phonetic": "ແພໂກພາໂຢ",
             "lao_meaning": "ຫິວເຂົ້າ",
             "boss_korean_phonetic": "히우 카우"
           },
           {
             "korean": "배불러요",
-            "lao_phonetic": "ແພ ບຸລລໍໂຍ",
+            "lao_phonetic": "ແພ ບຸລລໍໂຢ",
             "lao_meaning": "ອິ່ມແລ້ວ",
             "boss_korean_phonetic": "임 래우"
           },
           {
             "korean": "화장실 가요",
-            "lao_phonetic": "ຮວາຈັງຊິລ ກາໂຍ",
+            "lao_phonetic": "ຮວາຈັງຊິລ ກາໂຢ",
             "lao_meaning": "ໄປຫ້ອງນ້ຳ",
             "boss_korean_phonetic": "빠이 헝남"
           },
           {
             "korean": "쉬세요 / 쉬어요",
-            "lao_phonetic": "ຊວິເຊໂຍ / ຊວິຫິໂຍ",
+            "lao_phonetic": "ຊວິເຊໂຍຢ / ຊວໍໂຢ",
             "lao_meaning": "ພັກຜ່ອນ",
             "boss_korean_phonetic": "팍펀"
           },
           {
             "korean": "피곤해요? / 힘들어요?",
-            "lao_phonetic": "ພິກິນແຊໂຍ? / ຮິມດິນໂຍ?",
+            "lao_phonetic": "ພິໂກນແຮໂຢະ? / ຮິມດືລໍໂຢະ?",
             "lao_meaning": "ເມື່ອຍບໍ?",
             "boss_korean_phonetic": "므어이 버?"
           },
           {
             "korean": "아파요",
-            "lao_phonetic": "ອາພາໂຍ",
+            "lao_phonetic": "ອາພາໂຢ",
             "lao_meaning": "ເຈັບ / ປ່ວຍ",
-            "boss_korean_phonetic": "쳅 / 뿌어이"
+            "boss_korean_phonetic": "쩹 / 뿌아이"
           },
           {
             "korean": "더워요",
-            "lao_phonetic": "ຫ້ວໂຍ",
+            "lao_phonetic": "ທໍວໍໂຢ",
             "lao_meaning": "ຮ້ອນ",
             "boss_korean_phonetic": "헌"
           },
