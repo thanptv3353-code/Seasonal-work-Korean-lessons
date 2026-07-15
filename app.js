@@ -161,19 +161,38 @@ function shuffle(arr) {
 }
 
 // ---------- Official exam (separate from practice quizzes) ----------
-const EXAM_CONFIG_KEY = "kolo_exam_config_v1";
-const EXAM_RESULTS_KEY = "kolo_exam_results_v1";
-const EXAM_TAKER_KEY = "kolo_exam_current_taker";
+// Backed by Firestore (shared cloud database, see firebase-config.js) instead of
+// localStorage, so the enable/disable toggle, the 30-question bank, and every
+// submitted result are visible to ALL devices at once — required so many workers
+// can sign in and take the exam at the same time from their own phone/tablet/PC.
+const EXAM_TAKER_KEY = "kolo_exam_current_taker"; // stays local: "who is sitting at this device right now"
 
-function loadExamConfig() {
+function examConfigDoc() {
+  return db.collection("examConfig").doc("current");
+}
+function examResultsCol() {
+  return db.collection("examResults");
+}
+
+async function loadExamConfig() {
   try {
-    return JSON.parse(localStorage.getItem(EXAM_CONFIG_KEY)) || { enabled: false, questions: [] };
-  } catch (e) {
+    const snap = await examConfigDoc().get();
+    if (snap.exists) return snap.data();
     return { enabled: false, questions: [] };
+  } catch (e) {
+    console.error("loadExamConfig failed:", e);
+    return { enabled: false, questions: [], _offline: true };
   }
 }
-function saveExamConfig(cfg) {
-  localStorage.setItem(EXAM_CONFIG_KEY, JSON.stringify(cfg));
+async function saveExamConfig(cfg) {
+  try {
+    await examConfigDoc().set(cfg);
+    return true;
+  } catch (e) {
+    console.error("saveExamConfig failed:", e);
+    alert("ບໍ່ສາມາດບັນທຶກໄດ້ (ກວດສອບການເຊື່ອມຕໍ່ອິນເຕີເນັດ)");
+    return false;
+  }
 }
 function generateExamQuestions(count) {
   const pool = getAllSubLessons().flatMap(allItems).filter((it) => it.korean && it.lao_meaning);
@@ -192,20 +211,24 @@ function setCurrentExamTaker(name) {
 function clearCurrentExamTaker() {
   sessionStorage.removeItem(EXAM_TAKER_KEY);
 }
-function loadExamResults() {
+async function loadExamResults() {
   try {
-    return JSON.parse(localStorage.getItem(EXAM_RESULTS_KEY)) || [];
+    const snap = await examResultsCol().get();
+    return snap.docs.map((d) => d.data());
   } catch (e) {
+    console.error("loadExamResults failed:", e);
     return [];
   }
 }
-function saveExamResults(list) {
-  localStorage.setItem(EXAM_RESULTS_KEY, JSON.stringify(list));
-}
-function addExamResult(name, score, total) {
-  const list = loadExamResults();
-  list.push({ name: name.trim(), score, total, timestamp: Date.now() });
-  saveExamResults(list);
+async function addExamResult(name, score, total) {
+  try {
+    await examResultsCol().add({ name: name.trim(), score, total, timestamp: Date.now() });
+    return true;
+  } catch (e) {
+    console.error("addExamResult failed:", e);
+    alert("ບໍ່ສາມາດບັນທຶກຄະແນນໄດ້ (ກວດສອບການເຊື່ອມຕໍ່ອິນເຕີເນັດ) — ລອງໃໝ່ອີກຄັ້ງ");
+    return false;
+  }
 }
 
 // ---------- Text to speech ----------
@@ -416,7 +439,11 @@ function renderAdminGate(targetHash) {
 function renderStudents() {
   backBtn.classList.remove("hidden");
   topTitle.textContent = "ລາຍຊື່ນັກຮຽນ";
+  app.innerHTML = `<div class="empty-msg">ກຳລັງໂຫລດ...</div>`;
+  renderStudentsAsync();
+}
 
+async function renderStudentsAsync() {
   const topics = getTopics();
   const students = loadStudents();
   const names = Object.keys(students).sort((a, b) => a.localeCompare(b, "lo"));
@@ -452,8 +479,9 @@ function renderStudents() {
     </div>
   `).join("");
 
-  const examCfg = loadExamConfig();
-  const examResults = loadExamResults()
+  const examCfg = await loadExamConfig();
+  const examResultsRaw = await loadExamResults();
+  const examResults = examResultsRaw
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name, "lo") || a.timestamp - b.timestamp);
   const examResultsHtml = examResults.length
@@ -470,6 +498,10 @@ function renderStudents() {
       }).join("")
     : '<div class="empty-msg">ຍັງບໍ່ມີຄົນສອບເສັງ</div>';
 
+  const offlineNotice = examCfg._offline
+    ? `<p class="admin-hint" style="color:var(--red);">⚠️ ເຊື່ອມຕໍ່ຖານຂໍ້ມູນກາງບໍ່ໄດ້ — ກວດສອບອິນເຕີເນັດ. ການຕັ້ງຄ່າສອບເສັງອາດບໍ່ທັນສະໄໝ.</p>`
+    : "";
+
   app.innerHTML = `
     <div class="intro">
       <h2>ລາຍຊື່ນັກຮຽນ 📋</h2>
@@ -485,7 +517,8 @@ function renderStudents() {
 
     <div class="admin-tools">
       <h3>📝 ຈັດການບົດສອບເສັງທາງການ</h3>
-      <p class="admin-hint">ບົດສອບເສັງນີ້ແຍກຕ່າງຫາກຈາກແບບທົດສອບຝຶກຫັດປົກກະຕິ — ໃຊ້ 30 ຂໍ້ ສຸ່ມຈາກທຸກບົດ. ເປີດສະເພາະຍາມທີ່ຈະສອບເສັງແທ້ໆ.</p>
+      <p class="admin-hint">ບົດສອບເສັງນີ້ແຍກຕ່າງຫາກຈາກແບບທົດສອບຝຶກຫັດປົກກະຕິ — ໃຊ້ 30 ຂໍ້ ສຸ່ມຈາກທຸກບົດ. ເປີດສະເພາະຍາມທີ່ຈະສອບເສັງແທ້ໆ. ຕັ້ງຄ່ານີ້ນຳໃຊ້ຮ່ວມກັນທຸກອຸປະກອນຜ່ານອິນເຕີເນັດ.</p>
+      ${offlineNotice}
       <button class="btn-secondary" id="toggleExamBtn">${examCfg.enabled ? "🔴 ປິດຮັບລົງທະບຽນສອບເສັງ" : "🟢 ເປີດຮັບລົງທະບຽນສອບເສັງ"}</button>
       <button class="btn-secondary" id="regenExamBtn">🎲 ສຸ່ມຄຳຖາມ 30 ຂໍ້ໃໝ່</button>
       <button class="btn-secondary" id="editExamBtn">✏️ ແກ້ໄຂຄຳຖາມສອບເສັງ (${examCfg.questions.length} ຂໍ້)</button>
@@ -514,21 +547,23 @@ function renderStudents() {
   app.querySelectorAll(".lesson-edit-btn").forEach((btn) => {
     btn.addEventListener("click", () => navigate("#/edit/" + btn.dataset.id));
   });
-  document.getElementById("toggleExamBtn").addEventListener("click", () => {
-    const cfg = loadExamConfig();
+  document.getElementById("toggleExamBtn").addEventListener("click", async () => {
+    const cfg = await loadExamConfig();
     cfg.enabled = !cfg.enabled;
     if (cfg.enabled && !cfg.questions.length) {
       cfg.questions = generateExamQuestions(30);
     }
-    saveExamConfig(cfg);
-    render();
+    delete cfg._offline;
+    await saveExamConfig(cfg);
+    renderStudentsAsync();
   });
-  document.getElementById("regenExamBtn").addEventListener("click", () => {
+  document.getElementById("regenExamBtn").addEventListener("click", async () => {
     if (!confirm("ສຸ່ມຄຳຖາມສອບເສັງໃໝ່ທັງ 30 ຂໍ້ບໍ? ຄຳຖາມເກົ່າ (ທີ່ອາດແກ້ໄຂໄວ້) ຈະຫາຍໄປ.")) return;
-    const cfg = loadExamConfig();
+    const cfg = await loadExamConfig();
     cfg.questions = generateExamQuestions(30);
-    saveExamConfig(cfg);
-    render();
+    delete cfg._offline;
+    await saveExamConfig(cfg);
+    renderStudentsAsync();
   });
   document.getElementById("editExamBtn").addEventListener("click", () => navigate("#/examedit"));
   document.getElementById("exportDataBtn").addEventListener("click", exportDataJs);
@@ -1086,8 +1121,24 @@ function saveEditDraft() {
 function renderExamNameEntry() {
   backBtn.classList.remove("hidden");
   topTitle.textContent = "ລົງຊື່ເຂົ້າສອບເສັງ";
+  app.innerHTML = `<div class="empty-msg">ກຳລັງໂຫລດ...</div>`;
+  renderExamNameEntryAsync();
+}
 
-  const cfg = loadExamConfig();
+async function renderExamNameEntryAsync() {
+  const cfg = await loadExamConfig();
+
+  if (cfg._offline) {
+    app.innerHTML = `
+      <div class="intro edit-intro">
+        <h2>📡 ເຊື່ອມຕໍ່ອິນເຕີເນັດບໍ່ໄດ້</h2>
+        <p>ການສອບເສັງທາງການຕ້ອງໃຊ້ອິນເຕີເນັດ. ກະລຸນາກວດສອບການເຊື່ອມຕໍ່ແລ້ວລອງໃໝ່.</p>
+      </div>
+      <button class="btn-secondary" id="examBackHomeBtn">← ກັບໄປໜ້າຫຼັກ</button>
+    `;
+    document.getElementById("examBackHomeBtn").addEventListener("click", () => navigate("#/home"));
+    return;
+  }
 
   if (!cfg.enabled) {
     app.innerHTML = `
@@ -1143,8 +1194,8 @@ function renderExamNameEntry() {
 // ---------- Official exam: 30-question quiz ----------
 let examQuizState = null;
 
-function buildExamQuiz() {
-  const cfg = loadExamConfig();
+async function buildExamQuiz() {
+  const cfg = await loadExamConfig();
   const all = cfg.questions;
   const wholePool = getAllSubLessons().flatMap(allItems).filter((it) => it.korean);
 
@@ -1170,15 +1221,15 @@ function renderExamQuiz() {
   backBtn.classList.remove("hidden");
   topTitle.textContent = "ການສອບເສັງທາງການ";
 
-  if (!examQuizState) {
-    examQuizState = {
-      questions: buildExamQuiz(),
-      index: 0,
-      score: 0,
-      answered: false,
-    };
+  if (examQuizState) {
+    renderExamQuizQuestion();
+    return;
   }
-  renderExamQuizQuestion();
+  app.innerHTML = `<div class="empty-msg">ກຳລັງໂຫລດ...</div>`;
+  buildExamQuiz().then((questions) => {
+    examQuizState = { questions, index: 0, score: 0, answered: false };
+    renderExamQuizQuestion();
+  });
 }
 
 function renderExamQuizQuestion() {
@@ -1234,12 +1285,13 @@ function onExamChoiceSelected(btn, q) {
   });
 }
 
-function finishExamQuiz() {
+async function finishExamQuiz() {
   const { score, questions } = examQuizState;
   const total = questions.length;
   const name = getCurrentExamTaker();
-  addExamResult(name, score, total);
   examQuizState = null;
+  app.innerHTML = `<div class="empty-msg">ກຳລັງບັນທຶກຄະແນນ...</div>`;
+  await addExamResult(name, score, total);
   navigate(`#/examresult/${score}/${total}`);
 }
 
@@ -1279,12 +1331,13 @@ let examEditDraft = null;
 function renderExamEdit() {
   backBtn.classList.remove("hidden");
   topTitle.textContent = "ແກ້ໄຂຄຳຖາມສອບເສັງ";
-
-  const cfg = loadExamConfig();
-  examEditDraft = {
-    questions: cfg.questions.map((q) => Object.assign({}, q)),
-  };
-  renderExamEditView();
+  app.innerHTML = `<div class="empty-msg">ກຳລັງໂຫລດ...</div>`;
+  loadExamConfig().then((cfg) => {
+    examEditDraft = {
+      questions: cfg.questions.map((q) => Object.assign({}, q)),
+    };
+    renderExamEditView();
+  });
 }
 
 function examEditRowHtml(it, i) {
@@ -1340,12 +1393,13 @@ function renderExamEditView() {
     renderExamEditView();
   });
 
-  document.getElementById("saveExamEditBtn").addEventListener("click", () => {
-    const cfg = loadExamConfig();
+  document.getElementById("saveExamEditBtn").addEventListener("click", async () => {
+    const cfg = await loadExamConfig();
     cfg.questions = examEditDraft.questions.filter((q) => q.korean || q.lao_phonetic || q.lao_meaning);
-    saveExamConfig(cfg);
+    delete cfg._offline;
+    const ok = await saveExamConfig(cfg);
     examEditDraft = null;
-    alert("ບັນທຶກສຳເລັດແລ້ວ!");
+    if (ok) alert("ບັນທຶກສຳເລັດແລ້ວ!");
     navigate("#/students");
   });
   document.getElementById("cancelExamEditBtn").addEventListener("click", () => {
