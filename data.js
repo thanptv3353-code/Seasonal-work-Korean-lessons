@@ -36,7 +36,7 @@ const LESSONS = [
           },
           {
             "korean": "이름이 뭐예요?",
-            "lao_phonetic": "ອິລືມິ ມໍເຢໂະ",
+            "lao_phonetic": "ອິລືມິ ມໍເຢໂຢ",
             "lao_meaning": "ເຈົ້າຊື່ຫຍັງ?",
             "boss_korean_phonetic": "짜우 쓰 냥"
           },
@@ -48,7 +48,7 @@ const LESSONS = [
           },
           {
             "korean": "먼저 갈게요",
-            "lao_phonetic": "ມອນຈຳ ຄັນເກາໂຢ",
+            "lao_phonetic": "ມອນຈໍ ຄັລເກໂຢ",
             "lao_meaning": "ໄປກ່ອນເດີ",
             "boss_korean_phonetic": "빠이꺼뒤"
           },
@@ -72,13 +72,13 @@ const LESSONS = [
           },
           {
             "korean": "잘 부탁드립니다",
-            "lao_phonetic": "ຈັລ ບູ-ທັກ-ດິ-ຣິມ-ນິ-ດາ",
-            "lao_meaning": "ຝາກເນື້ອຝາກຕົວແດ່ເດີ",
+            "lao_phonetic": "ຈັລ ບູ-ທັກ-ດື-ຣິມ-ນິ-ດາ",
+            "lao_meaning": "ຂໍຝາກເນື້ອຝາກຕົວແດ່ເດີ",
             "boss_korean_phonetic": "커 팍 느아 팍 뚜아 대 둬"
           },
           {
             "korean": "수고했어요",
-            "lao_phonetic": "ຊູ-ໂກ-ແຮດ-ຂໍໂຢ",
+            "lao_phonetic": "ຊູ-ໂກ-ແຮດ-ຊໍໂຢ",
             "lao_meaning": "ຂອບໃຈທີ່ເຮັດວຽກໜັກ / ເມື່ອຍເຈົ້າແລ້ວ",
             "boss_korean_phonetic": "컵짜이 티헷 위약낙/므아이 짜우 래우"
           }
@@ -98,7 +98,7 @@ const LESSONS = [
         "items": [
           {
             "korean": "안녕하세요",
-            "lao_phonetic": "ອັນຍອງຮາເຊໂຍ",
+            "lao_phonetic": "ອັນຍອງຮາເຊໂຢ",
             "lao_meaning": "ສະບາຍດີ",
             "boss_korean_phonetic": "싸바이디"
           },
@@ -110,7 +110,7 @@ const LESSONS = [
           },
           {
             "korean": "죄송합니다 / 미안해요",
-            "lao_phonetic": "ຈເວຊັງຮັມນິດາ / ມິອັນແຮໂຍ",
+            "lao_phonetic": "ເຈຊົງຮັມນິດາ / ມິອັນແຮໂຢ",
             "lao_meaning": "ຂໍໂທດ",
             "boss_korean_phonetic": "커롯"
           },
@@ -122,25 +122,25 @@ const LESSONS = [
           },
           {
             "korean": "아니요",
-            "lao_phonetic": "ອານິໂຍ",
-            "lao_meaning": "ບໍ (ບໍ່ແມ່ນ)",
-            "boss_korean_phonetic": "버"
+            "lao_phonetic": "ອານິໂຢ",
+            "lao_meaning": "ບໍ່ (ບໍ່ແມ່ນ)",
+            "boss_korean_phonetic": "버맨)"
           },
           {
             "korean": "알았어요?",
-            "lao_phonetic": "ອາລັດຊຸໂຍະ?",
-            "lao_meaning": "ເຂົ້າໃຈແລ້ວ",
-            "boss_korean_phonetic": "카우짜이 래우"
+            "lao_phonetic": "ອາລັດຊໍໂຢະ?",
+            "lao_meaning": "ເຂົ້າໃຈບໍ່",
+            "boss_korean_phonetic": "카우짜이 버"
           },
           {
             "korean": "몰라요 / 모르겠어요",
-            "lao_phonetic": "ມິລລາໂຍ / ໂມະຣິກັດຊຸໂຍ",
+            "lao_phonetic": "ມົລລາໂຢ / ໂມລືເກັດຊໍໂຢ",
             "lao_meaning": "ບໍ່ຮູ້ / ບໍ່ເຂົ້າໃຈ",
             "boss_korean_phonetic": "버후 / 버 카우짜이"
           },
           {
             "korean": "괜찮아요",
-            "lao_phonetic": "ແຄວນຊານາໂຍ",
+            "lao_phonetic": "ແຄວນຊານາໂຢ",
             "lao_meaning": "ບໍ່ເປັນຫຍັງ",
             "boss_korean_phonetic": "버뻰냥"
           },
