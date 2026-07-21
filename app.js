@@ -27,22 +27,13 @@ function loadStudents() {
 function saveStudents(s) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
 }
-function studentNames() {
-  return Object.keys(loadStudents()).sort((a, b) => a.localeCompare(b, "lo"));
-}
 function getCurrentStudent() {
   return localStorage.getItem(CURRENT_KEY) || "";
 }
-function setCurrentStudent(name) {
-  const trimmed = name.trim();
-  if (!trimmed) return;
-  const students = loadStudents();
-  if (!students[trimmed]) students[trimmed] = {};
-  saveStudents(students);
-  localStorage.setItem(CURRENT_KEY, trimmed);
-}
 function clearCurrentStudent() {
   localStorage.removeItem(CURRENT_KEY);
+  localStorage.removeItem(CURRENT_NAME_KEY);
+  localStorage.removeItem(UNLOCKED_CACHE_KEY);
 }
 
 function loadProgress() {
@@ -66,6 +57,180 @@ function setLessonProgress(subId, patch) {
   const p = loadProgress();
   p[subId] = Object.assign(getLessonProgress(subId), patch);
   saveProgress(p);
+}
+
+// ---------- Paid access: accounts & payment proofs ----------
+// Real accounts (name + phone + password) live in Firestore, keyed by phone,
+// so a student can log in from any device and the admin can see/approve them
+// from any device too. This is a lightweight gate appropriate for a small
+// paid course, not bank-grade security: this static site has no server of
+// its own, so passwords are salted+hashed client-side (not plaintext) but the
+// hashing/comparison logic itself is visible in this public JS file, and
+// Firestore rules can't distinguish "the real owner" without full Firebase
+// Auth. Good enough to keep casual users out; not meant to resist a
+// determined attacker with devtools.
+const CURRENT_NAME_KEY = "kolo_current_name";
+const UNLOCKED_CACHE_KEY = "kolo_unlocked_cache";
+const PAY_AMOUNT_KIP = 20000;
+
+function normalizePhone(phone) {
+  return String(phone || "").replace(/\D/g, "");
+}
+function usersCol() {
+  return db.collection("users");
+}
+function paymentProofsCol() {
+  return db.collection("paymentProofs");
+}
+async function randomSalt() {
+  const arr = new Uint8Array(16);
+  crypto.getRandomValues(arr);
+  return Array.from(arr).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+async function hashPassword(password, salt) {
+  const data = new TextEncoder().encode(salt + ":" + password);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+async function findUserByPhone(phone) {
+  const id = normalizePhone(phone);
+  if (!id) return null;
+  try {
+    const snap = await usersCol().doc(id).get();
+    return snap.exists ? snap.data() : null;
+  } catch (e) {
+    console.error("findUserByPhone failed:", e);
+    return { _offline: true };
+  }
+}
+async function registerUser(name, phone, password) {
+  const id = normalizePhone(phone);
+  const salt = await randomSalt();
+  const passwordHash = await hashPassword(password, salt);
+  const user = { name: name.trim(), phone: id, salt, passwordHash, unlocked: false, createdAt: Date.now() };
+  await usersCol().doc(id).set(user);
+  return user;
+}
+async function verifyLogin(phone, password) {
+  const user = await findUserByPhone(phone);
+  if (!user || user._offline) return user || null;
+  const hash = await hashPassword(password, user.salt);
+  return hash === user.passwordHash ? user : null;
+}
+async function setUserUnlocked(phone, unlocked) {
+  await usersCol().doc(normalizePhone(phone)).update({ unlocked });
+}
+async function loadAllUsers() {
+  try {
+    const snap = await usersCol().get();
+    return snap.docs.map((d) => d.data());
+  } catch (e) {
+    console.error("loadAllUsers failed:", e);
+    return [];
+  }
+}
+
+function loginSession(phone, name) {
+  const id = normalizePhone(phone);
+  localStorage.setItem(CURRENT_KEY, id);
+  localStorage.setItem(CURRENT_NAME_KEY, name);
+  const students = loadStudents();
+  if (!students[id]) students[id] = {};
+  students[id]._name = name;
+  saveStudents(students);
+}
+function getCurrentStudentName() {
+  return localStorage.getItem(CURRENT_NAME_KEY) || "";
+}
+function getCachedUnlocked() {
+  return localStorage.getItem(UNLOCKED_CACHE_KEY) === "1";
+}
+function setCachedUnlocked(unlocked) {
+  localStorage.setItem(UNLOCKED_CACHE_KEY, unlocked ? "1" : "0");
+}
+async function refreshUnlockedStatus() {
+  const phone = getCurrentStudent();
+  if (!phone) return false;
+  const user = await findUserByPhone(phone);
+  if (user && !user._offline) setCachedUnlocked(!!user.unlocked);
+  return getCachedUnlocked();
+}
+function isTopicLocked(topicId) {
+  const idx = getTopics().findIndex((t) => t.id === topicId);
+  return idx > 0 && !getCachedUnlocked();
+}
+
+async function submitPaymentProof(phone, name, imageDataUrl) {
+  try {
+    await paymentProofsCol().add({
+      phone: normalizePhone(phone),
+      name,
+      imageDataUrl,
+      amount: PAY_AMOUNT_KIP,
+      status: "pending",
+      submittedAt: Date.now(),
+    });
+    return true;
+  } catch (e) {
+    console.error("submitPaymentProof failed:", e);
+    return false;
+  }
+}
+async function loadPaymentProofs() {
+  try {
+    const snap = await paymentProofsCol().get();
+    return snap.docs.map((d) => Object.assign({ id: d.id }, d.data()));
+  } catch (e) {
+    console.error("loadPaymentProofs failed:", e);
+    return [];
+  }
+}
+async function getMyLatestProof(phone) {
+  const all = await loadPaymentProofs();
+  const mine = all.filter((p) => p.phone === normalizePhone(phone)).sort((a, b) => b.submittedAt - a.submittedAt);
+  return mine[0] || null;
+}
+async function approveProof(proofId, phone) {
+  try {
+    await paymentProofsCol().doc(proofId).update({ status: "approved", reviewedAt: Date.now() });
+    await setUserUnlocked(phone, true);
+    return true;
+  } catch (e) {
+    console.error("approveProof failed:", e);
+    return false;
+  }
+}
+async function rejectProof(proofId) {
+  try {
+    await paymentProofsCol().doc(proofId).update({ status: "rejected", reviewedAt: Date.now() });
+    return true;
+  } catch (e) {
+    console.error("rejectProof failed:", e);
+    return false;
+  }
+}
+// Resize/compress an uploaded image client-side so the base64 stored in the
+// Firestore document (no Storage bucket needed) stays well under its 1MB cap.
+function readImageAsCompressedDataUrl(file, maxWidth = 900, quality = 0.6) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        const scale = Math.min(1, maxWidth / img.width);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 // ---------- Lesson content overrides (admin edits, keyed by sub-lesson id) ----------
@@ -301,6 +466,7 @@ const app = document.getElementById("app");
 const topTitle = document.getElementById("topTitle");
 const backBtn = document.getElementById("backBtn");
 const studentBtn = document.getElementById("studentBtn");
+const searchBtn = document.getElementById("searchBtn");
 
 function navigate(hash) {
   window.location.hash = hash;
@@ -318,13 +484,20 @@ backBtn.addEventListener("click", () => {
   if (parts.view === "examquiz" || parts.view === "examresult") return navigate("#/examname");
   navigate("#/home");
 });
-studentBtn.addEventListener("click", () => navigate("#/name"));
+studentBtn.addEventListener("click", () => {
+  if (confirm("ອອກຈາກລະບົບບໍ?")) {
+    clearCurrentStudent();
+    navigate("#/name");
+  }
+});
+searchBtn.addEventListener("click", () => navigate("#/search"));
 
 function currentRoute() {
   const hash = window.location.hash.replace(/^#\//, "");
   const parts = hash.split("/");
   if (parts[0] === "name") return { view: "name" };
   if (parts[0] === "search") return { view: "search" };
+  if (parts[0] === "paywall") return { view: "paywall" };
   if (parts[0] === "students") return { view: "students" };
   if (parts[0] === "edit") return { view: "edit", id: parts[1] };
   if (parts[0] === "examedit") return { view: "examedit" };
@@ -348,7 +521,7 @@ function render() {
   const route = currentRoute();
   window.scrollTo(0, 0);
 
-  const needsStudent = ["home", "topic", "lesson", "quiz", "result"].includes(route.view);
+  const needsStudent = ["home", "topic", "lesson", "quiz", "result", "search", "paywall"].includes(route.view);
   if (needsStudent && !getCurrentStudent()) return navigate("#/name");
 
   const needsAdmin = route.view === "students" || route.view === "edit" || route.view === "examedit";
@@ -358,6 +531,7 @@ function render() {
 
   if (route.view === "name") return renderNameEntry();
   if (route.view === "search") return renderSearch();
+  if (route.view === "paywall") return renderPaywall();
   if (route.view === "students") return renderStudents();
   if (route.view === "edit") return renderEdit(route.id);
   if (route.view === "examedit") return renderExamEdit();
@@ -374,63 +548,135 @@ function render() {
 
 const EXAM_VIEWS = ["examname", "examquiz", "examresult", "examedit"];
 function updateStudentBadge(view) {
-  const name = getCurrentStudent();
-  if (view === "name" || EXAM_VIEWS.includes(view) || !name) {
-    studentBtn.classList.add("hidden");
-  } else {
-    studentBtn.classList.remove("hidden");
-    studentBtn.textContent = "👤 " + name;
-  }
+  const phone = getCurrentStudent();
+  const loggedIn = view !== "name" && !EXAM_VIEWS.includes(view) && !!phone;
+  studentBtn.classList.toggle("hidden", !loggedIn);
+  searchBtn.classList.toggle("hidden", !loggedIn || view === "search");
+  if (loggedIn) studentBtn.textContent = "👤 " + (getCurrentStudentName() || phone);
 }
 
-// ---------- Name entry view ----------
+// ---------- Register / login view ----------
+let authMode = "register";
 function renderNameEntry() {
   backBtn.classList.toggle("hidden", !getCurrentStudent());
-  topTitle.textContent = "ຊື່ນັກຮຽນ";
-
-  const names = studentNames();
-  const chips = names.length
-    ? `<div class="name-chips">${names
-        .map((n) => `<button class="name-chip" data-name="${escapeAttr(n)}">${n}</button>`)
-        .join("")}</div>`
-    : "";
+  topTitle.textContent = "ເຂົ້າສູ່ລະບົບ";
 
   app.innerHTML = `
     <div class="intro">
       <h2>ຍິນດີຕ້ອນຮັບ 🙋</h2>
-      <p>ກະລຸນາຂຽນຊື່ຂອງທ່ານ ເພື່ອບັນທຶກຄວາມຄືບໜ້າ ແລະ ຄະແນນສອບເສັງຂອງທ່ານ.</p>
+      <p>ຫົວຂໍ້ທຳອິດ (ການທັກທາຍ) ຮຽນໄດ້ຟຣີ. ຫົວຂໍ້ອື່ນໆຕ້ອງລົງທະບຽນ ແລະ ຊຳລະເງິນກ່ອນຈຶ່ງຮຽນໄດ້.</p>
     </div>
-    <label class="field-label" for="nameInput">ຊື່ ແລະ ນາມສະກຸນ</label>
-    <input id="nameInput" class="name-input" type="text" placeholder="ຂຽນຊື່ຂອງທ່ານທີ່ນີ້..." autocomplete="off" />
-    <button class="btn-primary" id="nameStartBtn">ເລີ່ມຮຽນ →</button>
-    ${chips ? `<div class="name-chips-label">ຫຼືເລືອກຊື່ທີ່ເຄີຍລົງທະບຽນ:</div>${chips}` : ""}
-    <button class="link-btn" id="searchLinkBtn">🔍 ຄົ້ນຫາຄຳສັບ (ສຳລັບນາຍຈ້າງ ຫຼື ນັກຮຽນ, ບໍ່ຕ້ອງລົງຊື່)</button>
+    <div class="auth-tabs">
+      <button class="auth-tab" id="tabRegister">ລົງທະບຽນໃໝ່</button>
+      <button class="auth-tab" id="tabLogin">ເຂົ້າສູ່ລະບົບ</button>
+    </div>
+    <div id="authForm"></div>
+    <div id="authError" class="admin-pin-error"></div>
     <button class="link-btn" id="examLinkBtn">📝 ລົງຊື່ເຂົ້າສອບເສັງ (ສະເພາະສອບເສັງທາງການ)</button>
     <button class="link-btn" id="rosterLinkBtn">📋 ລາຍຊື່ນັກຮຽນ ແລະ ຄະແນນ (ສຳລັບຄູ/ແອັດມິນ)</button>
   `;
 
-  const input = document.getElementById("nameInput");
-  const start = () => {
-    if (!input.value.trim()) {
-      input.focus();
-      return;
-    }
-    setCurrentStudent(input.value);
-    navigate("#/home");
-  };
-  document.getElementById("nameStartBtn").addEventListener("click", start);
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") start();
-  });
-  app.querySelectorAll(".name-chip").forEach((chip) => {
-    chip.addEventListener("click", () => {
-      setCurrentStudent(chip.dataset.name);
-      navigate("#/home");
-    });
-  });
-  document.getElementById("searchLinkBtn").addEventListener("click", () => navigate("#/search"));
+  document.getElementById("tabRegister").addEventListener("click", () => { authMode = "register"; renderNameEntry(); });
+  document.getElementById("tabLogin").addEventListener("click", () => { authMode = "login"; renderNameEntry(); });
   document.getElementById("examLinkBtn").addEventListener("click", () => navigate("#/examname"));
   document.getElementById("rosterLinkBtn").addEventListener("click", () => navigate("#/students"));
+
+  document.getElementById("tabRegister").classList.toggle("active", authMode === "register");
+  document.getElementById("tabLogin").classList.toggle("active", authMode === "login");
+
+  const errorEl = document.getElementById("authError");
+  const formEl = document.getElementById("authForm");
+
+  if (authMode === "register") {
+    formEl.innerHTML = `
+      <label class="field-label" for="regName">ຊື່ ແລະ ນາມສະກຸນ</label>
+      <input id="regName" class="name-input" type="text" placeholder="ຂຽນຊື່ຂອງທ່ານທີ່ນີ້..." autocomplete="off" />
+      <label class="field-label" for="regPhone">ເບີໂທ</label>
+      <input id="regPhone" class="name-input" type="tel" inputmode="numeric" placeholder="ຂຽນເບີໂທຂອງທ່ານ..." autocomplete="off" />
+      <label class="field-label" for="regPass">ລະຫັດຜ່ານ</label>
+      <input id="regPass" class="name-input" type="password" placeholder="ຢ່າງໜ້ອຍ 4 ໂຕ..." autocomplete="off" />
+      <label class="field-label" for="regPass2">ຢືນຢັນລະຫັດຜ່ານ</label>
+      <input id="regPass2" class="name-input" type="password" placeholder="ພິມລະຫັດຜ່ານອີກຄັ້ງ..." autocomplete="off" />
+      <button class="btn-primary" id="authSubmitBtn">ລົງທະບຽນ →</button>
+    `;
+    const submit = async () => {
+      errorEl.textContent = "";
+      const name = document.getElementById("regName").value.trim();
+      const phone = normalizePhone(document.getElementById("regPhone").value);
+      const pass = document.getElementById("regPass").value;
+      const pass2 = document.getElementById("regPass2").value;
+      if (!name || phone.length < 8 || !pass) {
+        errorEl.textContent = "ກະລຸນາຂຽນຊື່, ເບີໂທ (ຢ່າງໜ້ອຍ 8 ໂຕເລກ), ແລະ ລະຫັດຜ່ານໃຫ້ຄົບ";
+        return;
+      }
+      if (pass.length < 4) {
+        errorEl.textContent = "ລະຫັດຜ່ານຕ້ອງມີຢ່າງໜ້ອຍ 4 ໂຕ";
+        return;
+      }
+      if (pass !== pass2) {
+        errorEl.textContent = "ລະຫັດຜ່ານທັງສອງຊ່ອງບໍ່ຄືກັນ";
+        return;
+      }
+      const btn = document.getElementById("authSubmitBtn");
+      btn.disabled = true;
+      btn.textContent = "ກຳລັງລົງທະບຽນ...";
+      const existing = await findUserByPhone(phone);
+      if (existing && existing._offline) {
+        errorEl.textContent = "ເຊື່ອມຕໍ່ຖານຂໍ້ມູນບໍ່ໄດ້ (ກວດສອບອິນເຕີເນັດ)";
+        btn.disabled = false;
+        btn.textContent = "ລົງທະບຽນ →";
+        return;
+      }
+      if (existing) {
+        errorEl.textContent = "ເບີໂທນີ້ລົງທະບຽນແລ້ວ, ກະລຸນາເຂົ້າສູ່ລະບົບແທນ";
+        btn.disabled = false;
+        btn.textContent = "ລົງທະບຽນ →";
+        return;
+      }
+      const user = await registerUser(name, phone, pass);
+      loginSession(user.phone, user.name);
+      setCachedUnlocked(false);
+      navigate("#/home");
+    };
+    document.getElementById("authSubmitBtn").addEventListener("click", submit);
+  } else {
+    formEl.innerHTML = `
+      <label class="field-label" for="loginPhone">ເບີໂທ</label>
+      <input id="loginPhone" class="name-input" type="tel" inputmode="numeric" placeholder="ຂຽນເບີໂທຂອງທ່ານ..." autocomplete="off" />
+      <label class="field-label" for="loginPass">ລະຫັດຜ່ານ</label>
+      <input id="loginPass" class="name-input" type="password" placeholder="ຂຽນລະຫັດຜ່ານ..." autocomplete="off" />
+      <button class="btn-primary" id="authSubmitBtn">ເຂົ້າສູ່ລະບົບ →</button>
+    `;
+    const submit = async () => {
+      errorEl.textContent = "";
+      const phone = normalizePhone(document.getElementById("loginPhone").value);
+      const pass = document.getElementById("loginPass").value;
+      if (!phone || !pass) {
+        errorEl.textContent = "ກະລຸນາຂຽນເບີໂທ ແລະ ລະຫັດຜ່ານ";
+        return;
+      }
+      const btn = document.getElementById("authSubmitBtn");
+      btn.disabled = true;
+      btn.textContent = "ກຳລັງກວດສອບ...";
+      const user = await verifyLogin(phone, pass);
+      if (user && user._offline) {
+        errorEl.textContent = "ເຊື່ອມຕໍ່ຖານຂໍ້ມູນບໍ່ໄດ້ (ກວດສອບອິນເຕີເນັດ)";
+        btn.disabled = false;
+        btn.textContent = "ເຂົ້າສູ່ລະບົບ →";
+        return;
+      }
+      if (!user) {
+        errorEl.textContent = "ເບີໂທ ຫຼື ລະຫັດຜ່ານບໍ່ຖືກຕ້ອງ";
+        btn.disabled = false;
+        btn.textContent = "ເຂົ້າສູ່ລະບົບ →";
+        return;
+      }
+      loginSession(user.phone, user.name);
+      setCachedUnlocked(!!user.unlocked);
+      navigate("#/home");
+    };
+    document.getElementById("authSubmitBtn").addEventListener("click", submit);
+  }
 }
 
 // ---------- Admin PIN gate ----------
@@ -511,6 +757,46 @@ async function renderStudentsAsync() {
     </div>
   `).join("");
 
+  const allUsers = await loadAllUsers();
+  const allProofs = await loadPaymentProofs();
+  const pendingProofs = allProofs
+    .filter((p) => p.status === "pending")
+    .sort((a, b) => a.submittedAt - b.submittedAt);
+  const usersByPhone = Object.fromEntries(allUsers.map((u) => [u.phone, u]));
+
+  const pendingProofsHtml = pendingProofs.length
+    ? pendingProofs.map((p) => {
+        const user = usersByPhone[p.phone];
+        const date = new Date(p.submittedAt).toLocaleString("lo-LA");
+        return `
+        <div class="proof-row">
+          <img class="proof-thumb" src="${p.imageDataUrl}" alt="ຫຼັກຖານ" data-full="${p.imageDataUrl}" />
+          <div class="proof-info">
+            <div class="roster-name">${p.name || (user && user.name) || p.phone}</div>
+            <div class="roster-summary">📞 ${p.phone} · ${date}</div>
+          </div>
+          <div class="proof-actions">
+            <button class="btn-secondary approve-proof-btn" data-id="${p.id}" data-phone="${p.phone}">✅ ອະນຸມັດ</button>
+            <button class="btn-secondary reject-proof-btn" data-id="${p.id}">❌ ປະຕິເສດ</button>
+          </div>
+        </div>`;
+      }).join("")
+    : '<div class="empty-msg">ບໍ່ມີການລໍຖ້າກວດສອບ</div>';
+
+  const usersHtml = allUsers.length
+    ? allUsers
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name, "lo"))
+        .map((u) => `
+        <div class="roster-row">
+          <div class="roster-name">${u.name}</div>
+          <div class="roster-summary">📞 ${u.phone}</div>
+          <button class="btn-secondary toggle-unlock-btn" data-phone="${u.phone}" data-unlocked="${u.unlocked ? "1" : "0"}">
+            ${u.unlocked ? "🔓 ປົດລ໋ອກແລ້ວ (ກົດເພື່ອລ໋ອກ)" : "🔒 ຍັງລ໋ອກ (ກົດເພື່ອປົດລ໋ອກ)"}
+          </button>
+        </div>`).join("")
+    : '<div class="empty-msg">ຍັງບໍ່ມີບັນຊີລົງທະບຽນ</div>';
+
   const examCfg = await loadExamConfig();
   const examResultsRaw = await loadExamResults();
   const examResults = examResultsRaw
@@ -540,6 +826,18 @@ async function renderStudentsAsync() {
       <p>ຮ່ວມທັງໝົດ ${names.length} ຄົນ (ລຽງຕາມຕົວອັກສອນ). ໄອຄອນສີຂຽວ = ຜ່ານໝົດ, ສີເຫຼືອງ = ກຳລັງຮຽນ, ສີເທົາ = ຍັງບໍ່ໄດ້ຮຽນ.</p>
     </div>
     ${names.length ? `<div class="roster-list">${rows}</div>` : '<div class="empty-msg">ຍັງບໍ່ມີນັກຮຽນລົງທະບຽນ</div>'}
+
+    <div class="admin-tools">
+      <h3>💳 ອະນຸມັດການຊຳລະເງິນ (${pendingProofs.length} ລໍຖ້າ)</h3>
+      <p class="admin-hint">ກວດຮູບຫຼັກຖານການໂອນເງິນ ${PAY_AMOUNT_KIP.toLocaleString("en-US")} ກີບ ແລ້ວກົດອະນຸມັດ ຫຼື ປະຕິເສດ. ອະນຸມັດແລ້ວຈະປົດລ໋ອກທຸກຫົວຂໍ້ໃຫ້ຄົນນັ້ນທັນທີ.</p>
+      <div class="roster-list">${pendingProofsHtml}</div>
+    </div>
+
+    <div class="admin-tools">
+      <h3>👤 ບັນຊີນັກຮຽນ (${allUsers.length} ຄົນ)</h3>
+      <p class="admin-hint">ກົດປຸ່ມເພື່ອລ໋ອກ/ປົດລ໋ອກທຸກຫົວຂໍ້ໃຫ້ຄົນນັ້ນດ້ວຍຕົນເອງ (ນອກເໜືອຈາກການອະນຸມັດການຊຳລະເງິນຂ້າງເທິງ).</p>
+      <div class="roster-list">${usersHtml}</div>
+    </div>
 
     <div class="admin-tools">
       <h3>✏️ ແກ້ໄຂບົດຮຽນ</h3>
@@ -578,6 +876,39 @@ async function renderStudentsAsync() {
 
   app.querySelectorAll(".lesson-edit-btn").forEach((btn) => {
     btn.addEventListener("click", () => navigate("#/edit/" + btn.dataset.id));
+  });
+  app.querySelectorAll(".proof-thumb").forEach((img) => {
+    img.addEventListener("click", () => window.open(img.dataset.full, "_blank"));
+  });
+  app.querySelectorAll(".approve-proof-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!confirm("ອະນຸມັດການຊຳລະເງິນນີ້ ແລະ ປົດລ໋ອກທຸກຫົວຂໍ້ໃຫ້ບໍ?")) return;
+      btn.disabled = true;
+      const ok = await approveProof(btn.dataset.id, btn.dataset.phone);
+      if (!ok) alert("ອະນຸມັດບໍ່ສຳເລັດ, ກວດສອບອິນເຕີເນັດແລ້ວລອງໃໝ່");
+      renderStudentsAsync();
+    });
+  });
+  app.querySelectorAll(".reject-proof-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!confirm("ປະຕິເສດຫຼັກຖານນີ້ບໍ? ນັກຮຽນຈະສາມາດອັບໂຫລດໃໝ່ໄດ້.")) return;
+      btn.disabled = true;
+      const ok = await rejectProof(btn.dataset.id);
+      if (!ok) alert("ປະຕິເສດບໍ່ສຳເລັດ, ກວດສອບອິນເຕີເນັດແລ້ວລອງໃໝ່");
+      renderStudentsAsync();
+    });
+  });
+  app.querySelectorAll(".toggle-unlock-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const nextUnlocked = btn.dataset.unlocked !== "1";
+      btn.disabled = true;
+      try {
+        await setUserUnlocked(btn.dataset.phone, nextUnlocked);
+      } catch (e) {
+        alert("ບໍ່ສຳເລັດ, ກວດສອບອິນເຕີເນັດແລ້ວລອງໃໝ່");
+      }
+      renderStudentsAsync();
+    });
   });
   document.getElementById("toggleExamBtn").addEventListener("click", async () => {
     const cfg = await loadExamConfig();
@@ -656,23 +987,30 @@ function importOverridesBackup(file) {
 function renderHome() {
   backBtn.classList.add("hidden");
   topTitle.textContent = "ຮຽນພາສາເກົາຫຼີ";
-
+  app.innerHTML = `<div class="empty-msg">ກຳລັງໂຫລດ...</div>`;
+  renderHomeAsync();
+}
+async function renderHomeAsync() {
+  await refreshUnlockedStatus();
   const topics = getTopics();
   const prog = loadProgress();
   const cards = topics.map((topic, i) => {
+    const locked = isTopicLocked(topic.id);
     const subs = topic.subLessons;
     const passedCount = subs.filter((s) => prog[s.id] && prog[s.id].passed).length;
     const anyStarted = subs.some((s) => prog[s.id] && (prog[s.id].viewed || prog[s.id].bestTotal));
     let badge = '<span class="badge not-started">ຍັງບໍ່ໄດ້ຮຽນ</span>';
-    if (passedCount === subs.length) {
+    if (locked) {
+      badge = '<span class="badge locked">🔒 ຕ້ອງຊຳລະເງິນ</span>';
+    } else if (passedCount === subs.length) {
       badge = `<span class="badge passed">ຜ່ານໝົດ ${passedCount}/${subs.length}</span>`;
     } else if (anyStarted) {
       badge = `<span class="badge in-progress">${passedCount}/${subs.length} ບົດຜ່ານ</span>`;
     }
     const itemCount = subs.reduce((n, s) => n + allItems(s).length, 0);
     return `
-      <div class="lesson-card" data-id="${topic.id}">
-        <div class="lesson-icon">${topic.icon || "📘"}</div>
+      <div class="lesson-card ${locked ? "locked-card" : ""}" data-id="${topic.id}" data-locked="${locked ? "1" : "0"}">
+        <div class="lesson-icon">${locked ? "🔒" : (topic.icon || "📘")}</div>
         <div class="lesson-info">
           <div class="title-lo">${i + 1}. ${topic.title_lo}</div>
           <div class="title-ko ko">${topic.title_ko || ""}</div>
@@ -685,37 +1023,45 @@ function renderHome() {
   app.innerHTML = `
     <div class="intro">
       <h2>ສະບາຍດີ 👋</h2>
-      <p>ຮຽນຄຳສັບ ແລະ ປະໂຫຍກພາສາເກົາຫຼີທີ່ຈຳເປັນສຳລັບແຮງງານລະດູການ. ອ່ານຄຳອ່ານພາສາລາວ ຟັງສຽງ ແລ້ວທົດລອງເຮັດແບບທົດສອບຫຼັງຈົບແຕ່ລະໝວດ.</p>
+      <p>ຮຽນຄຳສັບ ແລະ ປະໂຫຍກພາສາເກົາຫຼີທີ່ຈຳເປັນສຳລັບແຮງງານລະດູການ. ຫົວຂໍ້ທຳອິດຮຽນໄດ້ຟຣີ, ຫົວຂໍ້ອື່ນໆຕ້ອງຊຳລະເງິນກ່ອນ.</p>
     </div>
     <div class="lesson-list">${cards}</div>
-    <button class="link-btn" id="searchLinkBtn">🔍 ຄົ້ນຫາຄຳສັບ</button>
     <button class="link-btn" id="examLinkBtn">📝 ລົງຊື່ເຂົ້າສອບເສັງ (ສະເພາະສອບເສັງທາງການ)</button>
     <button class="link-btn" id="rosterLinkBtn">📋 ລາຍຊື່ນັກຮຽນ ແລະ ຄະແນນ (ສຳລັບຄູ/ແອັດມິນ)</button>
   `;
 
   app.querySelectorAll(".lesson-card").forEach((el) => {
-    el.addEventListener("click", () => navigate("#/topic/" + el.dataset.id));
+    el.addEventListener("click", () => {
+      if (el.dataset.locked === "1") navigate("#/paywall");
+      else navigate("#/topic/" + el.dataset.id);
+    });
   });
-  document.getElementById("searchLinkBtn").addEventListener("click", () => navigate("#/search"));
   document.getElementById("examLinkBtn").addEventListener("click", () => navigate("#/examname"));
   document.getElementById("rosterLinkBtn").addEventListener("click", () => navigate("#/students"));
 }
 
-// ---------- Search (all lessons, no login required — for employers too) ----------
+// ---------- Search (logged-in only; locked accounts only search topic 1) ----------
 function renderSearch() {
   backBtn.classList.remove("hidden");
   topTitle.textContent = "ຄົ້ນຫາຄຳສັບ";
-
-  const searchIndex = getAllSubLessons().flatMap((lesson) =>
-    allItems(lesson)
-      .filter((it) => it.korean)
-      .map((it) => Object.assign({}, it, { _lessonId: lesson.id, _lessonTitle: lesson.title_lo }))
-  );
+  app.innerHTML = `<div class="empty-msg">ກຳລັງໂຫລດ...</div>`;
+  renderSearchAsync();
+}
+async function renderSearchAsync() {
+  await refreshUnlockedStatus();
+  const unlocked = getCachedUnlocked();
+  const searchIndex = getAllSubLessons()
+    .filter((lesson) => unlocked || !isTopicLocked(lesson.topicId))
+    .flatMap((lesson) =>
+      allItems(lesson)
+        .filter((it) => it.korean)
+        .map((it) => Object.assign({}, it, { _lessonId: lesson.id, _lessonTitle: lesson.title_lo }))
+    );
 
   app.innerHTML = `
     <div class="intro">
       <h2>🔍 ຄົ້ນຫາຄຳສັບ</h2>
-      <p>ພິມຄຳສັບພາສາລາວ (ຄວາມໝາຍ ຫຼື ຄຳອ່ານ) ຫຼື ພາສາເກົາຫຼີ ເພື່ອຄົ້ນຫາຈາກທຸກບົດຮຽນ. ມີປຸ່ມ 🔊 ລາວ ໃຫ້ນາຍຈ້າງກົດຟັງສຽງຄວາມໝາຍເປັນພາສາລາວໄດ້ເລີຍ.</p>
+      <p>ພິມຄຳສັບພາສາລາວ (ຄວາມໝາຍ ຫຼື ຄຳອ່ານ) ຫຼື ພາສາເກົາຫຼີ ເພື່ອຄົ້ນຫາ. ມີປຸ່ມ 🔊 ລາວ ໃຫ້ນາຍຈ້າງກົດຟັງສຽງຄວາມໝາຍເປັນພາສາລາວໄດ້ເລີຍ.${!unlocked ? " (ຄົ້ນຫາໄດ້ສະເພາະຫົວຂໍ້ທຳອິດ ຈົນກວ່າຈະຊຳລະເງິນ)" : ""}</p>
     </div>
     <input type="text" id="searchInput" class="search-input" placeholder="ພິມຄຳຄົ້ນຫາທີ່ນີ້..." autocomplete="off" />
     <div id="searchResults"></div>
@@ -750,10 +1096,101 @@ function renderSearch() {
   renderResults("");
 }
 
+// ---------- Paywall: pay via QR, upload proof, wait for admin approval ----------
+function renderPaywall() {
+  backBtn.classList.remove("hidden");
+  topTitle.textContent = "ຊຳລະເງິນເພື່ອປົດລ໋ອກ";
+  app.innerHTML = `<div class="empty-msg">ກຳລັງໂຫລດ...</div>`;
+  renderPaywallAsync();
+}
+async function renderPaywallAsync() {
+  const phone = getCurrentStudent();
+  await refreshUnlockedStatus();
+  if (getCachedUnlocked()) return navigate("#/home");
+
+  const proof = await getMyLatestProof(phone);
+  const amountText = PAY_AMOUNT_KIP.toLocaleString("en-US");
+
+  let statusHtml = "";
+  let formHtml = "";
+  if (proof && proof.status === "pending") {
+    statusHtml = `
+      <div class="paywall-status pending">⏳ ຫຼັກຖານການໂອນຂອງທ່ານກຳລັງລໍຖ້າການກວດສອບຈາກແອັດມິນ. ກະລຸນາລໍຖ້າ ຫຼືກັບມາເບິ່ງພາຍຫຼັງ.</div>
+      <img class="proof-preview" src="${proof.imageDataUrl}" alt="ຫຼັກຖານທີ່ສົ່ງແລ້ວ" />
+    `;
+  } else {
+    if (proof && proof.status === "rejected") {
+      statusHtml = `<div class="paywall-status rejected">❌ ຫຼັກຖານທີ່ສົ່ງມາກ່ອນໜ້ານີ້ບໍ່ຖືກຕ້ອງ, ກະລຸນາອັບໂຫລດໃໝ່.</div>`;
+    }
+    formHtml = `
+      <label class="field-label" for="proofInput">ອັບໂຫລດຫຼັກຖານການໂອນເງິນ (ຮູບພາບ)</label>
+      <input type="file" id="proofInput" accept="image/*" class="name-input" />
+      <img id="proofPreview" class="proof-preview hidden" />
+      <button class="btn-primary" id="proofSubmitBtn" disabled>ສົ່ງຫຼັກຖານ →</button>
+      <div id="proofError" class="admin-pin-error"></div>
+    `;
+  }
+
+  app.innerHTML = `
+    <div class="intro">
+      <h2>🔒 ຫົວຂໍ້ນີ້ຕ້ອງຊຳລະເງິນ</h2>
+      <p>ໂອນເງິນຈຳນວນ <strong>${amountText} ກີບ</strong> ຜ່ານ QR ຂ້າງລຸ່ມ ແລ້ວອັບໂຫລດຫຼັກຖານການໂອນ. ຫຼັງແອັດມິນກວດສອບ ແລະ ອະນຸມັດແລ້ວ, ທ່ານຈະຮຽນໄດ້ທຸກຫົວຂໍ້ທັນທີ.</p>
+    </div>
+    <div class="qr-box">
+      <img src="qr-payment.png" alt="QR ໂອນເງິນ" class="qr-image" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+      <div class="qr-placeholder">📷<br>ຮູບ QR ໂອນເງິນ<br>(ຈະໃສ່ໃນໄວໆນີ້)</div>
+      <div class="qr-amount">${amountText} ກີບ</div>
+    </div>
+    ${statusHtml}
+    ${formHtml}
+  `;
+
+  if (formHtml) {
+    const fileInput = document.getElementById("proofInput");
+    const preview = document.getElementById("proofPreview");
+    const submitBtn = document.getElementById("proofSubmitBtn");
+    const errorEl = document.getElementById("proofError");
+    let compressedDataUrl = null;
+
+    fileInput.addEventListener("change", async () => {
+      errorEl.textContent = "";
+      const file = fileInput.files[0];
+      if (!file) return;
+      submitBtn.disabled = true;
+      submitBtn.textContent = "ກຳລັງໂຫລດຮູບ...";
+      try {
+        compressedDataUrl = await readImageAsCompressedDataUrl(file);
+        preview.src = compressedDataUrl;
+        preview.classList.remove("hidden");
+        submitBtn.disabled = false;
+        submitBtn.textContent = "ສົ່ງຫຼັກຖານ →";
+      } catch (e) {
+        errorEl.textContent = "ບໍ່ສາມາດອ່ານຮູບໄດ້, ລອງໃໝ່ອີກຄັ້ງ";
+        submitBtn.textContent = "ສົ່ງຫຼັກຖານ →";
+      }
+    });
+
+    submitBtn.addEventListener("click", async () => {
+      if (!compressedDataUrl) return;
+      submitBtn.disabled = true;
+      submitBtn.textContent = "ກຳລັງສົ່ງ...";
+      const ok = await submitPaymentProof(phone, getCurrentStudentName(), compressedDataUrl);
+      if (!ok) {
+        errorEl.textContent = "ສົ່ງບໍ່ສຳເລັດ, ກວດສອບອິນເຕີເນັດແລ້ວລອງໃໝ່";
+        submitBtn.disabled = false;
+        submitBtn.textContent = "ສົ່ງຫຼັກຖານ →";
+        return;
+      }
+      renderPaywallAsync();
+    });
+  }
+}
+
 // ---------- Topic view (sub-lesson list within a topic) ----------
 function renderTopic(topicId) {
   const topic = findTopic(topicId);
   if (!topic) return navigate("#/home");
+  if (isTopicLocked(topicId)) return navigate("#/paywall");
   backBtn.classList.remove("hidden");
   topTitle.textContent = topic.title_lo;
 
@@ -842,6 +1279,7 @@ function bindVocabCardEvents(container) {
 function renderLesson(subId) {
   const lesson = findLesson(subId);
   if (!lesson) return navigate("#/home");
+  if (isTopicLocked(lesson.topicId)) return navigate("#/paywall");
   backBtn.classList.remove("hidden");
   topTitle.textContent = lesson.title_lo;
   setLessonProgress(subId, { viewed: true });
@@ -920,6 +1358,7 @@ function buildQuiz(lesson) {
 function renderQuiz(subId) {
   const lesson = findLesson(subId);
   if (!lesson) return navigate("#/home");
+  if (isTopicLocked(lesson.topicId)) return navigate("#/paywall");
   backBtn.classList.remove("hidden");
   topTitle.textContent = "ແບບທົດສອບ";
 

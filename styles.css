@@ -132,6 +132,9 @@ body { padding-bottom: 40px; }
 .badge.in-progress { background: #fff2df; color: #b9770e; }
 .badge.passed { background: #e3f8ec; color: #1e8a54; }
 .badge.failed { background: #fdeaea; color: #c23b3b; }
+.badge.locked { background: #fdeaea; color: #c23b3b; }
+.lesson-card.locked-card { opacity: .75; }
+.lesson-card.locked-card .lesson-icon { background: #fdeaea; }
 
 /* ---------- Lesson view ---------- */
 .section-nav {
@@ -388,6 +391,27 @@ body { padding-bottom: 40px; }
   color: var(--text);
 }
 .name-input:focus { outline: none; border-color: var(--blue); }
+.auth-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  background: #eef2fb;
+  border-radius: 14px;
+  padding: 4px;
+}
+.auth-tab {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--blue-dark);
+  font-family: inherit;
+  font-weight: 600;
+  font-size: .95rem;
+  padding: 10px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.auth-tab.active { background: var(--card-bg); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
 
 /* ---------- Search ---------- */
 .search-input {
@@ -408,6 +432,58 @@ body { padding-bottom: 40px; }
   color: var(--text-mute);
   padding: 24px 12px;
   font-size: .95rem;
+}
+
+/* ---------- Paywall ---------- */
+.qr-box {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  text-align: center;
+  margin-bottom: 16px;
+}
+.qr-image { max-width: 240px; width: 100%; border-radius: 12px; }
+.qr-placeholder {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  max-width: 240px;
+  aspect-ratio: 1;
+  margin: 0 auto;
+  background: #eef2fb;
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  color: var(--text-mute);
+  font-size: .9rem;
+  line-height: 1.6;
+  text-align: center;
+}
+.qr-amount {
+  margin-top: 12px;
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--blue-dark);
+}
+.paywall-status {
+  padding: 14px;
+  border-radius: 12px;
+  margin-bottom: 12px;
+  font-size: .92rem;
+  font-weight: 600;
+}
+.paywall-status.pending { background: #fff2df; color: #b9770e; }
+.paywall-status.rejected { background: #fdeaea; color: #c23b3b; }
+.proof-preview {
+  display: block;
+  max-width: 260px;
+  width: 100%;
+  border-radius: 12px;
+  margin: 0 auto 16px;
+  border: 1px solid var(--border);
 }
 .name-chips-label {
   margin: 18px 0 8px;
@@ -465,6 +541,26 @@ body { padding-bottom: 40px; }
 .mini-badge.in-progress { background: #fff2df; }
 .roster-summary { font-size: .82rem; color: var(--text-mute); white-space: nowrap; }
 .empty-msg { text-align: center; color: var(--text-mute); padding: 40px 0; }
+.proof-row {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.proof-thumb {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+.proof-info { flex: 1; min-width: 120px; }
+.proof-actions { display: flex; gap: 8px; }
 
 .admin-tools {
   background: var(--card-bg);
