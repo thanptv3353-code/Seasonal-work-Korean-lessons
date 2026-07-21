@@ -466,10 +466,28 @@ function clearCurrentExamTaker() {
 async function loadExamResults() {
   try {
     const snap = await examResultsCol().get();
-    return snap.docs.map((d) => d.data());
+    return snap.docs.map((d) => Object.assign({ id: d.id }, d.data()));
   } catch (e) {
     console.error("loadExamResults failed:", e);
     return [];
+  }
+}
+async function deleteExamResult(id) {
+  try {
+    await examResultsCol().doc(id).delete();
+    return true;
+  } catch (e) {
+    console.error("deleteExamResult failed:", e);
+    return false;
+  }
+}
+async function deleteAllExamResults(ids) {
+  try {
+    await Promise.all(ids.map((id) => examResultsCol().doc(id).delete()));
+    return true;
+  } catch (e) {
+    console.error("deleteAllExamResults failed:", e);
+    return false;
   }
 }
 async function addExamResult(name, score, total) {
@@ -851,28 +869,44 @@ function renderStudents() {
 async function renderStudentsAsync() {
   const topics = getTopics();
   const students = loadStudents();
-  const names = Object.keys(students).sort((a, b) => a.localeCompare(b, "lo"));
+  const allUsers = await loadAllUsers();
+  const usersByPhone = Object.fromEntries(allUsers.map((u) => [u.phone, u]));
 
-  const rows = names.map((name) => {
-    const prog = students[name] || {};
+  // Merge the per-device progress roster (localStorage, keyed by phone — or a
+  // legacy plain name for entries created before the phone/password system)
+  // with the real cross-device Firestore accounts into one list, so the admin
+  // has a single place to see progress, lock/unlock, and delete a student.
+  const mergedKeys = new Set([...allUsers.map((u) => u.phone), ...Object.keys(students)]);
+  const merged = Array.from(mergedKeys).map((key) => {
+    const user = usersByPhone[key] || null;
+    const prog = students[key] || {};
+    const displayName = user ? user.name : (prog._name || key);
+    return { key, user, prog, displayName };
+  }).sort((a, b) => a.displayName.localeCompare(b.displayName, "lo"));
+
+  const totalSubs = topics.reduce((n, t) => n + t.subLessons.length, 0);
+  const rosterRowsHtml = merged.map(({ key, user, prog, displayName }) => {
     const topicBadges = topics.map((topic) => {
       const subs = topic.subLessons;
       const passedCount = subs.filter((s) => prog[s.id] && prog[s.id].passed).length;
       const anyStarted = subs.some((s) => prog[s.id] && (prog[s.id].viewed || prog[s.id].bestTotal));
       let cls = "not-started";
       if (passedCount === subs.length) cls = "passed";
-      else if (passedCount > 0) cls = "in-progress";
-      else if (anyStarted) cls = "in-progress";
+      else if (passedCount > 0 || anyStarted) cls = "in-progress";
       return `<span class="mini-badge ${cls}" title="${topic.title_lo}: ${passedCount}/${subs.length} ຜ່ານ">${topic.icon} ${passedCount}/${subs.length}</span>`;
     }).join("");
-    const totalSubs = topics.reduce((n, t) => n + t.subLessons.length, 0);
     const totalPassed = topics.reduce((n, t) => n + t.subLessons.filter((s) => prog[s.id] && prog[s.id].passed).length, 0);
+    const searchKey = escapeAttr((displayName + " " + (user ? user.phone : key)).toLowerCase());
+    const unlockBtn = user
+      ? `<button class="btn-secondary toggle-unlock-btn" data-phone="${user.phone}" data-unlocked="${user.unlocked ? "1" : "0"}">${user.unlocked ? "🔓 ປົດລ໋ອກແລ້ວ" : "🔒 ຍັງລ໋ອກ"}</button>`
+      : "";
     return `
-      <div class="roster-row">
-        <div class="roster-name">${name}</div>
+      <div class="roster-row" data-search="${searchKey}">
+        <div class="roster-name">${displayName}${user ? `<div class="roster-phone">📞 ${user.phone}</div>` : ""}</div>
         <div class="roster-badges">${topicBadges}</div>
         <div class="roster-summary">${totalPassed}/${totalSubs} ບົດຜ່ານ</div>
-        <button class="roster-delete-btn" data-name="${escapeAttr(name)}" aria-label="ລຶບ">🗑️</button>
+        ${unlockBtn}
+        <button class="btn-secondary btn-danger merged-delete-btn" data-key="${escapeAttr(key)}" data-has-account="${user ? "1" : "0"}" data-name="${escapeAttr(displayName)}">🗑️ ລຶບ</button>
       </div>`;
   }).join("");
 
@@ -885,14 +919,12 @@ async function renderStudentsAsync() {
     </details>
   `).join("");
 
-  const allUsers = await loadAllUsers();
   const allProofs = await loadPaymentProofs();
   const paySettings = await loadPaymentSettings();
   const currentAdminPin = await loadAdminPin();
   const pendingProofs = allProofs
     .filter((p) => p.status === "pending")
     .sort((a, b) => a.submittedAt - b.submittedAt);
-  const usersByPhone = Object.fromEntries(allUsers.map((u) => [u.phone, u]));
 
   const pendingProofsHtml = pendingProofs.length
     ? pendingProofs.map((p) => {
@@ -913,21 +945,6 @@ async function renderStudentsAsync() {
       }).join("")
     : '<div class="empty-msg">ບໍ່ມີການລໍຖ້າກວດສອບ</div>';
 
-  const usersHtml = allUsers.length
-    ? allUsers
-        .slice()
-        .sort((a, b) => a.name.localeCompare(b.name, "lo"))
-        .map((u) => `
-        <div class="roster-row">
-          <div class="roster-name">${u.name}</div>
-          <div class="roster-summary">📞 ${u.phone}</div>
-          <button class="btn-secondary toggle-unlock-btn" data-phone="${u.phone}" data-unlocked="${u.unlocked ? "1" : "0"}">
-            ${u.unlocked ? "🔓 ປົດລ໋ອກແລ້ວ (ກົດເພື່ອລ໋ອກ)" : "🔒 ຍັງລ໋ອກ (ກົດເພື່ອປົດລ໋ອກ)"}
-          </button>
-          <button class="btn-secondary btn-danger delete-user-btn" data-phone="${u.phone}" data-name="${escapeAttr(u.name)}">🗑️ ລຶບບັນຊີນີ້</button>
-        </div>`).join("")
-    : '<div class="empty-msg">ຍັງບໍ່ມີບັນຊີລົງທະບຽນ</div>';
-
   const examCfg = await loadExamConfig();
   const examResultsRaw = await loadExamResults();
   const examResults = examResultsRaw
@@ -943,6 +960,7 @@ async function renderStudentsAsync() {
           <div class="roster-name">${r.name}</div>
           <div class="roster-summary">${date}</div>
           <span class="badge ${passed ? "passed" : "failed"}">${r.score}/${r.total}</span>
+          <button class="roster-delete-btn" data-id="${r.id}" data-name="${escapeAttr(r.name)}" aria-label="ລຶບ">🗑️</button>
         </div>`;
       }).join("")
     : '<div class="empty-msg">ຍັງບໍ່ມີຄົນສອບເສັງ</div>';
@@ -954,12 +972,18 @@ async function renderStudentsAsync() {
   app.innerHTML = `
     <div class="intro">
       <h2>ລາຍຊື່ນັກຮຽນ 📋</h2>
-      <p>ຮ່ວມທັງໝົດ ${names.length} ຄົນ (ລຽງຕາມຕົວອັກສອນ). ໄອຄອນສີຂຽວ = ຜ່ານໝົດ, ສີເຫຼືອງ = ກຳລັງຮຽນ, ສີເທົາ = ຍັງບໍ່ໄດ້ຮຽນ.</p>
+      <p>ໄອຄອນສີຂຽວ = ຜ່ານໝົດ, ສີເຫຼືອງ = ກຳລັງຮຽນ, ສີເທົາ = ຍັງບໍ່ໄດ້ຮຽນ.</p>
     </div>
-    ${names.length ? `<div class="roster-list">${rows}</div>` : '<div class="empty-msg">ຍັງບໍ່ມີນັກຮຽນລົງທະບຽນ</div>'}
 
-    <div class="admin-tools">
-      <h3>⚙️ ຕັ້ງຄ່າການຊຳລະເງິນ</h3>
+    <details class="admin-tools">
+      <summary>👤 ນັກຮຽນ (${merged.length} ຄົນ)</summary>
+      <p class="admin-hint">ຄົ້ນຫາ, ເບິ່ງຄວາມຄືບໜ້າ, ລ໋ອກ/ປົດລ໋ອກ, ຫຼືລຶບນັກຮຽນ.</p>
+      <input type="text" id="studentSearchInput" class="search-input" placeholder="ຄົ້ນຫາຊື່ ຫຼື ເບີໂທ..." autocomplete="off" />
+      <div class="roster-list" id="mergedRosterList">${merged.length ? rosterRowsHtml : '<div class="empty-msg">ຍັງບໍ່ມີນັກຮຽນ</div>'}</div>
+    </details>
+
+    <details class="admin-tools">
+      <summary>⚙️ ຕັ້ງຄ່າການຊຳລະເງິນ</summary>
       <p class="admin-hint">ອັບໂຫລດຮູບ QR ໂອນເງິນ ແລະ ກຳນົດຈຳນວນຄ່າທຳນຽມ. ບັນທຶກແລ້ວຈະສະແດງໃນໜ້າຊຳລະເງິນຂອງນັກຮຽນທັນທີ.</p>
       ${paySettings.qrImageDataUrl ? `<img class="qr-image" id="currentQrPreview" src="${paySettings.qrImageDataUrl}" alt="QR ປັດຈຸບັນ" style="display:block;margin-bottom:14px;" />` : '<p class="admin-hint">ຍັງບໍ່ໄດ້ຕັ້ງຄ່າ QR</p>'}
       <label class="field-label" for="qrUploadInput">ຮູບ QR ໂອນເງິນໃໝ່ (ຖ້າຢາກປ່ຽນ)</label>
@@ -968,18 +992,12 @@ async function renderStudentsAsync() {
       <input type="number" id="paySettingsAmount" class="name-input" value="${paySettings.amount}" min="0" step="1000" />
       <button class="btn-secondary" id="savePaySettingsBtn">💾 ບັນທຶກການຕັ້ງຄ່າ</button>
       <div id="paySettingsMsg" class="admin-hint"></div>
-    </div>
+    </details>
 
     <div class="admin-tools">
       <h3>💳 ອະນຸມັດການຊຳລະເງິນ (${pendingProofs.length} ລໍຖ້າ)</h3>
       <p class="admin-hint">ກວດຮູບຫຼັກຖານການໂອນເງິນ ${paySettings.amount.toLocaleString("en-US")} ກີບ ແລ້ວກົດອະນຸມັດ ຫຼື ປະຕິເສດ. ອະນຸມັດແລ້ວຈະປົດລ໋ອກທຸກຫົວຂໍ້ໃຫ້ຄົນນັ້ນທັນທີ.</p>
       <div class="roster-list">${pendingProofsHtml}</div>
-    </div>
-
-    <div class="admin-tools">
-      <h3>👤 ບັນຊີນັກຮຽນ (${allUsers.length} ຄົນ)</h3>
-      <p class="admin-hint">ກົດປຸ່ມເພື່ອລ໋ອກ/ປົດລ໋ອກທຸກຫົວຂໍ້ໃຫ້ຄົນນັ້ນດ້ວຍຕົນເອງ (ນອກເໜືອຈາກການອະນຸມັດການຊຳລະເງິນຂ້າງເທິງ).</p>
-      <div class="roster-list">${usersHtml}</div>
     </div>
 
     <div class="admin-tools">
@@ -998,7 +1016,8 @@ async function renderStudentsAsync() {
     </div>
 
     <div class="admin-tools">
-      <h3>🏆 ຜົນສອບເສັງທາງການ</h3>
+      <h3>🏆 ຜົນສອບເສັງທາງການ (${examResults.length} ຄົນ)</h3>
+      ${examResults.length ? `<button class="btn-secondary btn-danger" id="deleteAllResultsBtn">🗑️ ລຶບຜົນສອບເສັງທັງໝົດ</button>` : ""}
       <div class="roster-list">${examResultsHtml}</div>
     </div>
 
@@ -1035,11 +1054,11 @@ async function renderStudentsAsync() {
   });
   app.querySelectorAll(".roster-delete-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      const ok = await showConfirm(`ລຶບຄວາມຄືບໜ້າຂອງ "${btn.dataset.name}" ອອກຈາກລາຍຊື່ນີ້ບໍ? (ອັນນີ້ແມ່ນຂໍ້ມູນຄວາມຄືບໜ້າໃນອຸປະກອນນີ້ເທົ່ານັ້ນ, ບໍ່ກ່ຽວກັບບັນຊີເຂົ້າສູ່ລະບົບ)`);
+      const ok = await showConfirm(`ລຶບຜົນສອບເສັງຂອງ "${btn.dataset.name}" ຖາວອນບໍ?`);
       if (!ok) return;
-      const students = loadStudents();
-      delete students[btn.dataset.name];
-      saveStudents(students);
+      btn.disabled = true;
+      const deleted = await deleteExamResult(btn.dataset.id);
+      if (!deleted) await showAlert("ລຶບບໍ່ສຳເລັດ, ກວດສອບອິນເຕີເນັດແລ້ວລອງໃໝ່");
       renderStudentsAsync();
     });
   });
@@ -1081,16 +1100,48 @@ async function renderStudentsAsync() {
       renderStudentsAsync();
     });
   });
-  app.querySelectorAll(".delete-user-btn").forEach((btn) => {
+  app.querySelectorAll(".merged-delete-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      const ok = await showConfirm(`ລຶບບັນຊີຂອງ "${btn.dataset.name}" (${btn.dataset.phone}) ຖາວອນບໍ? ນັກຮຽນຄົນນີ້ຈະຕ້ອງລົງທະບຽນ ແລະ ຊຳລະເງິນໃໝ່ຖ້າຢາກຮຽນອີກ.`);
+      const hasAccount = btn.dataset.hasAccount === "1";
+      const msg = hasAccount
+        ? `ລຶບບັນຊີຂອງ "${btn.dataset.name}" ຖາວອນບໍ? ນັກຮຽນຄົນນີ້ຈະຕ້ອງລົງທະບຽນ ແລະ ຊຳລະເງິນໃໝ່ຖ້າຢາກຮຽນອີກ.`
+        : `ລຶບຄວາມຄືບໜ້າຂອງ "${btn.dataset.name}" ອອກຈາກລາຍຊື່ນີ້ບໍ? (ອັນນີ້ແມ່ນຂໍ້ມູນຄວາມຄືບໜ້າໃນອຸປະກອນນີ້ເທົ່ານັ້ນ)`;
+      const ok = await showConfirm(msg);
       if (!ok) return;
       btn.disabled = true;
-      const deleted = await deleteUser(btn.dataset.phone);
-      if (!deleted) await showAlert("ລຶບບໍ່ສຳເລັດ, ກວດສອບອິນເຕີເນັດແລ້ວລອງໃໝ່");
+      if (hasAccount) {
+        const deleted = await deleteUser(btn.dataset.key);
+        if (!deleted) {
+          await showAlert("ລຶບບໍ່ສຳເລັດ, ກວດສອບອິນເຕີເນັດແລ້ວລອງໃໝ່");
+          return renderStudentsAsync();
+        }
+      }
+      const s = loadStudents();
+      delete s[btn.dataset.key];
+      saveStudents(s);
       renderStudentsAsync();
     });
   });
+  const studentSearchInput = document.getElementById("studentSearchInput");
+  if (studentSearchInput) {
+    studentSearchInput.addEventListener("input", () => {
+      const q = studentSearchInput.value.trim().toLowerCase();
+      document.querySelectorAll("#mergedRosterList .roster-row").forEach((row) => {
+        row.style.display = !q || row.dataset.search.includes(q) ? "" : "none";
+      });
+    });
+  }
+  const deleteAllResultsBtn = document.getElementById("deleteAllResultsBtn");
+  if (deleteAllResultsBtn) {
+    deleteAllResultsBtn.addEventListener("click", async () => {
+      const ok = await showConfirm(`ລຶບຜົນສອບເສັງທັງໝົດ (${examResults.length} ຄົນ) ຖາວອນບໍ?`);
+      if (!ok) return;
+      deleteAllResultsBtn.disabled = true;
+      const deleted = await deleteAllExamResults(examResults.map((r) => r.id));
+      if (!deleted) await showAlert("ລຶບບໍ່ສຳເລັດ, ກວດສອບອິນເຕີເນັດແລ້ວລອງໃໝ່");
+      renderStudentsAsync();
+    });
+  }
   (function bindPaySettingsForm() {
     const qrInput = document.getElementById("qrUploadInput");
     const amountInput = document.getElementById("paySettingsAmount");

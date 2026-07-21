@@ -610,7 +610,26 @@ body { padding-bottom: 40px; }
   margin-top: 18px;
 }
 .admin-tools h3 { margin: 0 0 6px; font-size: 1.05rem; }
+.admin-tools > summary {
+  margin: 0 0 6px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.admin-tools > summary::-webkit-details-marker { display: none; }
+.admin-tools > summary::after {
+  content: "▸";
+  color: var(--text-mute);
+  font-size: .85rem;
+  transition: transform .15s;
+}
+.admin-tools[open] > summary::after { transform: rotate(90deg); }
 .admin-hint { margin: 0 0 14px; font-size: .85rem; color: var(--text-mute); }
+.roster-phone { font-weight: 400; font-size: .8rem; color: var(--text-mute); }
 .edit-links { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
 .edit-topic-group {
   margin-bottom: 10px;
