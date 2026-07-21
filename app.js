@@ -232,7 +232,12 @@ async function addExamResult(name, score, total) {
 }
 
 // ---------- Text to speech ----------
+// Two voices: Korean (so students hear how vocabulary sounds) and Lao (so a
+// Korean employer who can't read Lao script can still play the Lao meaning
+// out loud to a worker). Lao TTS voices are not present on every device/OS —
+// speakLao() degrades gracefully with a message when none is found.
 let koreanVoice = null;
+let laoVoice = null;
 const NOVELTY_VOICE_RE = /grandma|grandpa|eddy|reed|rocko|sandy|shelley|flo|jester|bahh|bells|boing|bubbles|organ|trinoids|whisper|zarvox|albert|bad news|good news|superstar|wobble|deranged|cellos|hysterical/i;
 function pickVoice() {
   const voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
@@ -252,9 +257,18 @@ function pickVoice() {
   scored.sort((a, b) => b.score - a.score);
   koreanVoice = scored[0].v;
 }
-if (window.speechSynthesis) {
+function pickLaoVoice() {
+  const voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
+  const loVoices = voices.filter((v) => v.lang && v.lang.toLowerCase().startsWith("lo"));
+  laoVoice = loVoices[0] || null;
+}
+function refreshVoices() {
   pickVoice();
-  window.speechSynthesis.onvoiceschanged = pickVoice;
+  pickLaoVoice();
+}
+if (window.speechSynthesis) {
+  refreshVoices();
+  window.speechSynthesis.onvoiceschanged = refreshVoices;
 }
 function speak(text) {
   if (!window.speechSynthesis) return;
@@ -265,6 +279,20 @@ function speak(text) {
   if (koreanVoice) u.voice = koreanVoice;
   u.rate = 0.8;
   u.pitch = 1;
+  window.speechSynthesis.speak(u);
+}
+function speakLao(text) {
+  if (!window.speechSynthesis) return;
+  if (!laoVoice) pickLaoVoice();
+  if (!laoVoice) {
+    alert("ອຸປະກອນນີ້ບໍ່ມີສຽງອ່ານພາສາລາວ. ກະລຸນາໃຫ້ນາຍຈ້າງອ່ານຄວາມໝາຍທີ່ສະແດງໄວ້ແທນ, ຫຼືລອງໃຊ້ອຸປະກອນອື່ນ.");
+    return;
+  }
+  window.speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = laoVoice.lang;
+  u.voice = laoVoice;
+  u.rate = 0.85;
   window.speechSynthesis.speak(u);
 }
 
@@ -296,6 +324,7 @@ function currentRoute() {
   const hash = window.location.hash.replace(/^#\//, "");
   const parts = hash.split("/");
   if (parts[0] === "name") return { view: "name" };
+  if (parts[0] === "search") return { view: "search" };
   if (parts[0] === "students") return { view: "students" };
   if (parts[0] === "edit") return { view: "edit", id: parts[1] };
   if (parts[0] === "examedit") return { view: "examedit" };
@@ -328,6 +357,7 @@ function render() {
   updateStudentBadge(route.view);
 
   if (route.view === "name") return renderNameEntry();
+  if (route.view === "search") return renderSearch();
   if (route.view === "students") return renderStudents();
   if (route.view === "edit") return renderEdit(route.id);
   if (route.view === "examedit") return renderExamEdit();
@@ -374,6 +404,7 @@ function renderNameEntry() {
     <input id="nameInput" class="name-input" type="text" placeholder="ຂຽນຊື່ຂອງທ່ານທີ່ນີ້..." autocomplete="off" />
     <button class="btn-primary" id="nameStartBtn">ເລີ່ມຮຽນ →</button>
     ${chips ? `<div class="name-chips-label">ຫຼືເລືອກຊື່ທີ່ເຄີຍລົງທະບຽນ:</div>${chips}` : ""}
+    <button class="link-btn" id="searchLinkBtn">🔍 ຄົ້ນຫາຄຳສັບ (ສຳລັບນາຍຈ້າງ ຫຼື ນັກຮຽນ, ບໍ່ຕ້ອງລົງຊື່)</button>
     <button class="link-btn" id="examLinkBtn">📝 ລົງຊື່ເຂົ້າສອບເສັງ (ສະເພາະສອບເສັງທາງການ)</button>
     <button class="link-btn" id="rosterLinkBtn">📋 ລາຍຊື່ນັກຮຽນ ແລະ ຄະແນນ (ສຳລັບຄູ/ແອັດມິນ)</button>
   `;
@@ -397,6 +428,7 @@ function renderNameEntry() {
       navigate("#/home");
     });
   });
+  document.getElementById("searchLinkBtn").addEventListener("click", () => navigate("#/search"));
   document.getElementById("examLinkBtn").addEventListener("click", () => navigate("#/examname"));
   document.getElementById("rosterLinkBtn").addEventListener("click", () => navigate("#/students"));
 }
@@ -656,6 +688,7 @@ function renderHome() {
       <p>ຮຽນຄຳສັບ ແລະ ປະໂຫຍກພາສາເກົາຫຼີທີ່ຈຳເປັນສຳລັບແຮງງານລະດູການ. ອ່ານຄຳອ່ານພາສາລາວ ຟັງສຽງ ແລ້ວທົດລອງເຮັດແບບທົດສອບຫຼັງຈົບແຕ່ລະໝວດ.</p>
     </div>
     <div class="lesson-list">${cards}</div>
+    <button class="link-btn" id="searchLinkBtn">🔍 ຄົ້ນຫາຄຳສັບ</button>
     <button class="link-btn" id="examLinkBtn">📝 ລົງຊື່ເຂົ້າສອບເສັງ (ສະເພາະສອບເສັງທາງການ)</button>
     <button class="link-btn" id="rosterLinkBtn">📋 ລາຍຊື່ນັກຮຽນ ແລະ ຄະແນນ (ສຳລັບຄູ/ແອັດມິນ)</button>
   `;
@@ -663,8 +696,58 @@ function renderHome() {
   app.querySelectorAll(".lesson-card").forEach((el) => {
     el.addEventListener("click", () => navigate("#/topic/" + el.dataset.id));
   });
+  document.getElementById("searchLinkBtn").addEventListener("click", () => navigate("#/search"));
   document.getElementById("examLinkBtn").addEventListener("click", () => navigate("#/examname"));
   document.getElementById("rosterLinkBtn").addEventListener("click", () => navigate("#/students"));
+}
+
+// ---------- Search (all lessons, no login required — for employers too) ----------
+function renderSearch() {
+  backBtn.classList.remove("hidden");
+  topTitle.textContent = "ຄົ້ນຫາຄຳສັບ";
+
+  const searchIndex = getAllSubLessons().flatMap((lesson) =>
+    allItems(lesson)
+      .filter((it) => it.korean)
+      .map((it) => Object.assign({}, it, { _lessonId: lesson.id, _lessonTitle: lesson.title_lo }))
+  );
+
+  app.innerHTML = `
+    <div class="intro">
+      <h2>🔍 ຄົ້ນຫາຄຳສັບ</h2>
+      <p>ພິມຄຳສັບພາສາລາວ (ຄວາມໝາຍ ຫຼື ຄຳອ່ານ) ຫຼື ພາສາເກົາຫຼີ ເພື່ອຄົ້ນຫາຈາກທຸກບົດຮຽນ. ມີປຸ່ມ 🔊 ລາວ ໃຫ້ນາຍຈ້າງກົດຟັງສຽງຄວາມໝາຍເປັນພາສາລາວໄດ້ເລີຍ.</p>
+    </div>
+    <input type="text" id="searchInput" class="search-input" placeholder="ພິມຄຳຄົ້ນຫາທີ່ນີ້..." autocomplete="off" />
+    <div id="searchResults"></div>
+  `;
+
+  const input = document.getElementById("searchInput");
+  const resultsEl = document.getElementById("searchResults");
+
+  function renderResults(rawQuery) {
+    const q = rawQuery.trim().toLowerCase();
+    if (!q) {
+      resultsEl.innerHTML = `<div class="search-hint">ພິມຄຳສັບຢ່າງໜ້ອຍ 1 ໂຕອັກສອນ ເພື່ອຄົ້ນຫາ...</div>`;
+      return;
+    }
+    const matches = searchIndex
+      .filter((it) =>
+        (it.korean && it.korean.toLowerCase().includes(q)) ||
+        (it.lao_phonetic && it.lao_phonetic.toLowerCase().includes(q)) ||
+        (it.lao_meaning && it.lao_meaning.toLowerCase().includes(q))
+      )
+      .slice(0, 50);
+    if (!matches.length) {
+      resultsEl.innerHTML = `<div class="search-hint">ບໍ່ພົບຄຳສັບທີ່ຄົ້ນຫາ ລອງພິມຄຳອື່ນ</div>`;
+      return;
+    }
+    resultsEl.innerHTML = matches.map((it) => vocabCardHtml(it, { showLesson: true })).join("");
+    bindVocabCardEvents(resultsEl);
+  }
+
+  input.addEventListener("input", () => renderResults(input.value));
+  input.focus();
+  renderResults("");
 }
 
 // ---------- Topic view (sub-lesson list within a topic) ----------
@@ -710,6 +793,51 @@ function renderTopic(topicId) {
   });
 }
 
+// ---------- Shared vocab card (used by lesson view and search) ----------
+function vocabCardHtml(item, opts = {}) {
+  if (!item.korean && !item.lao_phonetic) {
+    // Info-only item (e.g. emergency contact directory row) — no pronunciation to teach.
+    return `
+      <div class="vocab-card">
+        <div class="vocab-meaning">${item.lao_meaning}</div>
+      </div>`;
+  }
+  const icon = item.icon ? `<span class="vocab-icon">${item.icon}</span>` : "";
+  const lessonTag = opts.showLesson && item._lessonTitle
+    ? `<button class="vocab-lesson-tag" data-lesson-id="${item._lessonId}">${item._lessonTitle}</button>`
+    : "";
+  return `
+      <div class="vocab-card">
+        ${lessonTag}
+        <div class="vocab-row">
+          <div class="vocab-main">
+            <div class="vocab-phonetic">${icon}${item.lao_phonetic || ""}</div>
+            ${item.korean ? `<div class="vocab-korean ko">${item.korean}</div>` : ""}
+          </div>
+          <div class="vocab-speak-btns">
+            ${item.korean ? `<button class="speak-btn" data-lang="ko" data-text="${escapeAttr(item.korean)}" aria-label="ຟັງສຽງພາສາເກົາຫຼີ">🔊 KO</button>` : ""}
+            ${item.lao_meaning ? `<button class="speak-btn speak-btn-lo" data-lang="lo" data-text="${escapeAttr(item.lao_meaning)}" aria-label="ຟັງສຽງພາສາລາວ (ສຳລັບນາຍຈ້າງ)">🔊 ລາວ</button>` : ""}
+          </div>
+        </div>
+        <div class="vocab-meaning">
+          <span class="label">ຄວາມໝາຍ:</span>${item.lao_meaning}
+        </div>
+        ${item.note ? `<div class="vocab-note">${item.note}</div>` : ""}
+        ${item.boss_korean_phonetic ? `<div class="vocab-boss">ນາຍຈ້າງເວົ້າວ່າ: ${item.boss_korean_phonetic}</div>` : ""}
+      </div>`;
+}
+function bindVocabCardEvents(container) {
+  container.querySelectorAll(".speak-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (btn.dataset.lang === "lo") speakLao(btn.dataset.text);
+      else speak(btn.dataset.text);
+    });
+  });
+  container.querySelectorAll(".vocab-lesson-tag").forEach((btn) => {
+    btn.addEventListener("click", () => navigate("#/lesson/" + btn.dataset.lessonId));
+  });
+}
+
 // ---------- Lesson view ----------
 function renderLesson(subId) {
   const lesson = findLesson(subId);
@@ -723,31 +851,7 @@ function renderLesson(subId) {
     .filter(Boolean);
 
   const sectionsHtml = lesson.sections.map((section, i) => {
-    const itemsHtml = section.items.map((item) => {
-      if (!item.korean && !item.lao_phonetic) {
-        // Info-only item (e.g. emergency contact directory row) — no pronunciation to teach.
-        return `
-      <div class="vocab-card">
-        <div class="vocab-meaning">${item.lao_meaning}</div>
-      </div>`;
-      }
-      const icon = item.icon ? `<span class="vocab-icon">${item.icon}</span>` : "";
-      return `
-      <div class="vocab-card">
-        <div class="vocab-row">
-          <div class="vocab-main">
-            <div class="vocab-phonetic">${icon}${item.lao_phonetic || ""}</div>
-            ${item.korean ? `<div class="vocab-korean ko">${item.korean}</div>` : ""}
-          </div>
-          ${item.korean ? `<button class="speak-btn" data-text="${escapeAttr(item.korean)}" aria-label="ຟັງສຽງ">🔊</button>` : ""}
-        </div>
-        <div class="vocab-meaning">
-          <span class="label">ຄວາມໝາຍ:</span>${item.lao_meaning}
-        </div>
-        ${item.note ? `<div class="vocab-note">${item.note}</div>` : ""}
-        ${item.boss_korean_phonetic ? `<div class="vocab-boss">ນາຍຈ້າງເວົ້າວ່າ: ${item.boss_korean_phonetic}</div>` : ""}
-      </div>`;
-    }).join("");
+    const itemsHtml = section.items.map((item) => vocabCardHtml(item)).join("");
 
     const heading = section.title_lo
       ? `<div class="section-title" id="sec-${i}">${section.title_lo}${section.title_ko ? `<span class="ko">${section.title_ko}</span>` : ""}</div>`
@@ -768,9 +872,7 @@ function renderLesson(subId) {
     </div>
   `;
 
-  app.querySelectorAll(".speak-btn").forEach((btn) => {
-    btn.addEventListener("click", () => speak(btn.dataset.text));
-  });
+  bindVocabCardEvents(app);
   app.querySelectorAll(".section-nav-chip").forEach((chip) => {
     chip.addEventListener("click", () => {
       const el = document.getElementById(chip.dataset.target);

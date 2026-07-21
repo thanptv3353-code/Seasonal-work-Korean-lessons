@@ -193,18 +193,34 @@ body { padding-bottom: 40px; }
   font-style: italic;
   margin-top: 2px;
 }
+.vocab-speak-btns { display: flex; flex-direction: column; gap: 6px; }
 .speak-btn {
   border: none;
   background: var(--blue);
   color: #fff;
-  width: 46px;
-  height: 46px;
-  min-width: 46px;
-  border-radius: 50%;
-  font-size: 1.2rem;
+  min-width: 64px;
+  padding: 8px 10px;
+  border-radius: 20px;
+  font-size: .85rem;
+  font-weight: 700;
   cursor: pointer;
+  white-space: nowrap;
 }
 .speak-btn:active { background: var(--blue-dark); }
+.speak-btn-lo { background: var(--orange); color: var(--orange-dark); }
+.speak-btn-lo:active { background: var(--orange-dark); color: #fff; }
+.vocab-lesson-tag {
+  display: inline-block;
+  border: none;
+  background: #eef2fb;
+  color: var(--blue-dark);
+  border-radius: 12px;
+  padding: 3px 10px;
+  font-size: .75rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: 8px;
+}
 .vocab-meaning {
   margin-top: 10px;
   padding-top: 10px;
@@ -372,6 +388,27 @@ body { padding-bottom: 40px; }
   color: var(--text);
 }
 .name-input:focus { outline: none; border-color: var(--blue); }
+
+/* ---------- Search ---------- */
+.search-input {
+  width: 100%;
+  padding: 16px;
+  font-size: 1.1rem;
+  border: 2px solid var(--border);
+  border-radius: 14px;
+  margin-bottom: 16px;
+  font-family: inherit;
+  background: var(--card-bg);
+  color: var(--text);
+  box-sizing: border-box;
+}
+.search-input:focus { outline: none; border-color: var(--blue); }
+.search-hint {
+  text-align: center;
+  color: var(--text-mute);
+  padding: 24px 12px;
+  font-size: .95rem;
+}
 .name-chips-label {
   margin: 18px 0 8px;
   font-size: .85rem;
