@@ -16,6 +16,35 @@
 
 * { box-sizing: border-box; }
 
+/* ---------- Custom modal (replaces native confirm/alert) ---------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 25, 40, .5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 1000;
+}
+.modal-box {
+  background: var(--card-bg);
+  border-radius: var(--radius);
+  padding: 24px 20px;
+  max-width: 380px;
+  width: 100%;
+  box-shadow: 0 10px 40px rgba(0,0,0,.25);
+}
+.modal-message {
+  font-size: 1.02rem;
+  color: var(--text);
+  line-height: 1.5;
+  margin-bottom: 18px;
+  white-space: pre-line;
+}
+.modal-actions { display: flex; flex-direction: column; gap: 8px; }
+.modal-actions .btn-primary, .modal-actions .btn-secondary { margin: 0; }
+
 html, body {
   margin: 0;
   padding: 0;
@@ -571,15 +600,34 @@ body { padding-bottom: 40px; }
 }
 .admin-tools h3 { margin: 0 0 6px; font-size: 1.05rem; }
 .admin-hint { margin: 0 0 14px; font-size: .85rem; color: var(--text-mute); }
-.edit-links { display: flex; flex-direction: column; gap: 8px; }
-.edit-topic-group { margin-bottom: 18px; }
+.edit-links { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.edit-topic-group {
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0 14px;
+}
+.edit-topic-group[open] { padding-bottom: 14px; }
 .edit-topic-group:last-child { margin-bottom: 0; }
 .edit-topic-title {
   font-weight: 700;
   font-size: .95rem;
   color: var(--blue-dark);
-  margin-bottom: 8px;
+  padding: 12px 0;
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
+.edit-topic-title::-webkit-details-marker { display: none; }
+.edit-topic-title::after {
+  content: "▸";
+  color: var(--text-mute);
+  transition: transform .15s;
+  font-size: .85rem;
+}
+.edit-topic-group[open] .edit-topic-title::after { transform: rotate(90deg); }
 .lesson-edit-btn {
   background: #eef3ff;
   border: none;

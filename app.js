@@ -401,7 +401,7 @@ async function saveExamConfig(cfg) {
     return true;
   } catch (e) {
     console.error("saveExamConfig failed:", e);
-    alert("ບໍ່ສາມາດບັນທຶກໄດ້ (ກວດສອບການເຊື່ອມຕໍ່ອິນເຕີເນັດ)");
+    await showAlert("ບໍ່ສາມາດບັນທຶກໄດ້ (ກວດສອບການເຊື່ອມຕໍ່ອິນເຕີເນັດ)");
     return false;
   }
 }
@@ -437,7 +437,7 @@ async function addExamResult(name, score, total) {
     return true;
   } catch (e) {
     console.error("addExamResult failed:", e);
-    alert("ບໍ່ສາມາດບັນທຶກຄະແນນໄດ້ (ກວດສອບການເຊື່ອມຕໍ່ອິນເຕີເນັດ) — ລອງໃໝ່ອີກຄັ້ງ");
+    await showAlert("ບໍ່ສາມາດບັນທຶກຄະແນນໄດ້ (ກວດສອບການເຊື່ອມຕໍ່ອິນເຕີເນັດ) — ລອງໃໝ່ອີກຄັ້ງ");
     return false;
   }
 }
@@ -496,7 +496,7 @@ function speakLao(text) {
   if (!window.speechSynthesis) return;
   if (!laoVoice) pickLaoVoice();
   if (!laoVoice) {
-    alert("ອຸປະກອນນີ້ບໍ່ມີສຽງອ່ານພາສາລາວ. ກະລຸນາໃຫ້ນາຍຈ້າງອ່ານຄວາມໝາຍທີ່ສະແດງໄວ້ແທນ, ຫຼືລອງໃຊ້ອຸປະກອນອື່ນ.");
+    showAlert("ອຸປະກອນນີ້ບໍ່ມີສຽງອ່ານພາສາລາວ. ກະລຸນາໃຫ້ນາຍຈ້າງອ່ານຄວາມໝາຍທີ່ສະແດງໄວ້ແທນ, ຫຼືລອງໃຊ້ອຸປະກອນອື່ນ.");
     return;
   }
   window.speechSynthesis.cancel();
@@ -505,6 +505,41 @@ function speakLao(text) {
   u.voice = laoVoice;
   u.rate = 0.85;
   window.speechSynthesis.speak(u);
+}
+
+// ---------- Custom modal (replaces native confirm()/alert()) ----------
+// Facebook/Messenger/LINE's built-in browser — how many workers actually open
+// a link shared in a chat — silently blocks or auto-dismisses native
+// confirm()/alert() dialogs. When that happens `if (!confirm(...)) return;`
+// exits immediately and a button click looks like it did nothing at all, even
+// though the underlying save succeeded. This in-page modal has no such issue.
+function showModal(message, { showCancel } = {}) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `
+      <div class="modal-box">
+        <div class="modal-message">${message}</div>
+        <div class="modal-actions">
+          ${showCancel ? '<button class="btn-secondary modal-cancel-btn">ຍົກເລີກ</button>' : ""}
+          <button class="btn-primary modal-ok-btn">${showCancel ? "ຢືນຢັນ" : "ຕົກລົງ"}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const cleanup = (result) => {
+      document.body.removeChild(overlay);
+      resolve(result);
+    };
+    overlay.querySelector(".modal-ok-btn").addEventListener("click", () => cleanup(true));
+    const cancelBtn = overlay.querySelector(".modal-cancel-btn");
+    if (cancelBtn) cancelBtn.addEventListener("click", () => cleanup(false));
+  });
+}
+function showConfirm(message) {
+  return showModal(message, { showCancel: true });
+}
+function showAlert(message) {
+  return showModal(message, { showCancel: false });
 }
 
 // ---------- Router ----------
@@ -530,8 +565,8 @@ backBtn.addEventListener("click", () => {
   if (parts.view === "examquiz" || parts.view === "examresult") return navigate("#/examname");
   navigate("#/home");
 });
-studentBtn.addEventListener("click", () => {
-  if (confirm("ອອກຈາກລະບົບບໍ?")) {
+studentBtn.addEventListener("click", async () => {
+  if (await showConfirm("ອອກຈາກລະບົບບໍ?")) {
     clearCurrentStudent();
     navigate("#/name");
   }
@@ -795,12 +830,12 @@ async function renderStudentsAsync() {
   }).join("");
 
   const editSections = topics.map((topic) => `
-    <div class="edit-topic-group">
-      <div class="edit-topic-title">${topic.icon} ${topic.title_lo}</div>
+    <details class="edit-topic-group">
+      <summary class="edit-topic-title">${topic.icon} ${topic.title_lo}</summary>
       <div class="edit-links">
         ${topic.subLessons.map((s) => `<button class="lesson-edit-btn" data-id="${s.id}">✏️ ${s.title_lo}</button>`).join("")}
       </div>
-    </div>
+    </details>
   `).join("");
 
   const allUsers = await loadAllUsers();
@@ -941,19 +976,19 @@ async function renderStudentsAsync() {
   });
   app.querySelectorAll(".approve-proof-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      if (!confirm("ອະນຸມັດການຊຳລະເງິນນີ້ ແລະ ປົດລ໋ອກທຸກຫົວຂໍ້ໃຫ້ບໍ?")) return;
+      if (!(await showConfirm("ອະນຸມັດການຊຳລະເງິນນີ້ ແລະ ປົດລ໋ອກທຸກຫົວຂໍ້ໃຫ້ບໍ?"))) return;
       btn.disabled = true;
       const ok = await approveProof(btn.dataset.id, btn.dataset.phone);
-      if (!ok) alert("ອະນຸມັດບໍ່ສຳເລັດ, ກວດສອບອິນເຕີເນັດແລ້ວລອງໃໝ່");
+      if (!ok) await showAlert("ອະນຸມັດບໍ່ສຳເລັດ, ກວດສອບອິນເຕີເນັດແລ້ວລອງໃໝ່");
       renderStudentsAsync();
     });
   });
   app.querySelectorAll(".reject-proof-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      if (!confirm("ປະຕິເສດຫຼັກຖານນີ້ບໍ? ນັກຮຽນຈະສາມາດອັບໂຫລດໃໝ່ໄດ້.")) return;
+      if (!(await showConfirm("ປະຕິເສດຫຼັກຖານນີ້ບໍ? ນັກຮຽນຈະສາມາດອັບໂຫລດໃໝ່ໄດ້."))) return;
       btn.disabled = true;
       const ok = await rejectProof(btn.dataset.id);
-      if (!ok) alert("ປະຕິເສດບໍ່ສຳເລັດ, ກວດສອບອິນເຕີເນັດແລ້ວລອງໃໝ່");
+      if (!ok) await showAlert("ປະຕິເສດບໍ່ສຳເລັດ, ກວດສອບອິນເຕີເນັດແລ້ວລອງໃໝ່");
       renderStudentsAsync();
     });
   });
@@ -964,7 +999,7 @@ async function renderStudentsAsync() {
       try {
         await setUserUnlocked(btn.dataset.phone, nextUnlocked);
       } catch (e) {
-        alert("ບໍ່ສຳເລັດ, ກວດສອບອິນເຕີເນັດແລ້ວລອງໃໝ່");
+        await showAlert("ບໍ່ສຳເລັດ, ກວດສອບອິນເຕີເນັດແລ້ວລອງໃໝ່");
       }
       renderStudentsAsync();
     });
@@ -1020,7 +1055,7 @@ async function renderStudentsAsync() {
     renderStudentsAsync();
   });
   document.getElementById("regenExamBtn").addEventListener("click", async () => {
-    if (!confirm("ສຸ່ມຄຳຖາມສອບເສັງໃໝ່ທັງ 30 ຂໍ້ບໍ? ຄຳຖາມເກົ່າ (ທີ່ອາດແກ້ໄຂໄວ້) ຈະຫາຍໄປ.")) return;
+    if (!(await showConfirm("ສຸ່ມຄຳຖາມສອບເສັງໃໝ່ທັງ 30 ຂໍ້ບໍ? ຄຳຖາມເກົ່າ (ທີ່ອາດແກ້ໄຂໄວ້) ຈະຫາຍໄປ."))) return;
     const cfg = await loadExamConfig();
     cfg.questions = generateExamQuestions(30);
     delete cfg._offline;
@@ -1069,14 +1104,14 @@ function exportOverridesBackup() {
 }
 function importOverridesBackup(file) {
   const reader = new FileReader();
-  reader.onload = () => {
+  reader.onload = async () => {
     try {
       const data = JSON.parse(reader.result);
       saveOverrides(data);
-      alert("ນຳເຂົ້າສຳເລັດແລ້ວ!");
+      await showAlert("ນຳເຂົ້າສຳເລັດແລ້ວ!");
       render();
     } catch (e) {
-      alert("ໄຟລ໌ບໍ່ຖືກຕ້ອງ, ກະລຸນາລອງໃໝ່.");
+      await showAlert("ໄຟລ໌ບໍ່ຖືກຕ້ອງ, ກະລຸນາລອງໃໝ່.");
     }
   };
   reader.readAsText(file);
@@ -1680,8 +1715,8 @@ function renderEditView() {
   });
 
   document.getElementById("saveEditBtn").addEventListener("click", saveEditDraft);
-  document.getElementById("resetEditBtn").addEventListener("click", () => {
-    if (!confirm("ຄືນຄ່າໝວດນີ້ກັບຄືນຄ່າເດີມ ແລະ ຍົກເລີກການແກ້ໄຂທັງໝົດບໍ?")) return;
+  document.getElementById("resetEditBtn").addEventListener("click", async () => {
+    if (!(await showConfirm("ຄືນຄ່າໝວດນີ້ກັບຄືນຄ່າເດີມ ແລະ ຍົກເລີກການແກ້ໄຂທັງໝົດບໍ?"))) return;
     const overrides = loadOverrides();
     delete overrides[editDraft.lessonId];
     saveOverrides(overrides);
@@ -1704,9 +1739,9 @@ function bindEditRowInputs() {
     rowEl.querySelector(".f-phonetic").addEventListener("input", (e) => { editDraft.items[idx].lao_phonetic = e.target.value; });
     rowEl.querySelector(".f-meaning").addEventListener("input", (e) => { editDraft.items[idx].lao_meaning = e.target.value; });
     rowEl.querySelector(".f-boss").addEventListener("input", (e) => { editDraft.items[idx].boss_korean_phonetic = e.target.value; });
-    rowEl.querySelector(".delete-row").addEventListener("click", () => {
+    rowEl.querySelector(".delete-row").addEventListener("click", async () => {
       if (editDraft.items.length <= 1) {
-        alert("ຕ້ອງມີຢ່າງໜ້ອຍ 1 ລາຍການ");
+        await showAlert("ຕ້ອງມີຢ່າງໜ້ອຍ 1 ລາຍການ");
         return;
       }
       editDraft.items.splice(idx, 1);
@@ -1729,7 +1764,7 @@ function bindEditRowInputs() {
   });
 }
 
-function saveEditDraft() {
+async function saveEditDraft() {
   const cleaned = editDraft.items
     .filter((it) => it.korean || it.lao_phonetic || it.lao_meaning)
     .map((it) => {
@@ -1755,7 +1790,7 @@ function saveEditDraft() {
   };
   saveOverrides(overrides);
   editDraft = null;
-  alert("ບັນທຶກສຳເລັດແລ້ວ!");
+  await showAlert("ບັນທຶກສຳເລັດແລ້ວ!");
   navigate("#/students");
 }
 
@@ -2023,11 +2058,11 @@ function renderExamEditView() {
 
   bindExamEditRowInputs();
 
-  document.getElementById("addExamRowBtn").addEventListener("click", () => {
+  document.getElementById("addExamRowBtn").addEventListener("click", async () => {
     const used = new Set(examEditDraft.questions.map((q) => q.korean));
     const pool = getAllSubLessons().flatMap(allItems).filter((it) => it.korean && it.lao_meaning && !used.has(it.korean));
     if (!pool.length) {
-      alert("ບໍ່ມີຄຳສັບເຫຼືອໃຫ້ສຸ່ມແລ້ວ");
+      await showAlert("ບໍ່ມີຄຳສັບເຫຼືອໃຫ້ສຸ່ມແລ້ວ");
       return;
     }
     const pick = shuffle(pool)[0];
@@ -2041,7 +2076,7 @@ function renderExamEditView() {
     delete cfg._offline;
     const ok = await saveExamConfig(cfg);
     examEditDraft = null;
-    if (ok) alert("ບັນທຶກສຳເລັດແລ້ວ!");
+    if (ok) await showAlert("ບັນທຶກສຳເລັດແລ້ວ!");
     navigate("#/students");
   });
   document.getElementById("cancelExamEditBtn").addEventListener("click", () => {
@@ -2060,11 +2095,11 @@ function bindExamEditRowInputs() {
       examEditDraft.questions.splice(idx, 1);
       renderExamEditView();
     });
-    rowEl.querySelector(".shuffle-row").addEventListener("click", () => {
+    rowEl.querySelector(".shuffle-row").addEventListener("click", async () => {
       const used = new Set(examEditDraft.questions.map((q) => q.korean));
       const pool = getAllSubLessons().flatMap(allItems).filter((it) => it.korean && it.lao_meaning && !used.has(it.korean));
       if (!pool.length) {
-        alert("ບໍ່ມີຄຳສັບເຫຼືອໃຫ້ສຸ່ມແລ້ວ");
+        await showAlert("ບໍ່ມີຄຳສັບເຫຼືອໃຫ້ສຸ່ມແລ້ວ");
         return;
       }
       const pick = shuffle(pool)[0];
