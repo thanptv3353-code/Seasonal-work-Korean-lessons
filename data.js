@@ -62,7 +62,7 @@ const LESSONS = [
                 "korean": "먼저 갈게요",
                 "lao_phonetic": "ມອນຈໍ ຄັລເກໂຢ",
                 "lao_meaning": "ໄປກ່ອນເດີ",
-                "boss_korean_phonetic": "빠이꺼뒤",
+                "boss_korean_phonetic": "빠이껀뒤",
                 "icon": "🚶"
               },
               {
@@ -133,14 +133,14 @@ const LESSONS = [
                 "korean": "감사합니다",
                 "lao_phonetic": "ຄຳຊາຮັມນິດາ",
                 "lao_meaning": "ຂອບໃຈ",
-                "boss_korean_phonetic": "컴짜이",
+                "boss_korean_phonetic": "컵짜이",
                 "icon": "🙏"
               },
               {
                 "korean": "죄송합니다 / 미안해요",
                 "lao_phonetic": "ເຈຊົງຮັມນິດາ / ມິອັນແຮໂຢ",
                 "lao_meaning": "ຂໍໂທດ",
-                "boss_korean_phonetic": "커롯",
+                "boss_korean_phonetic": "커톳",
                 "icon": "🙇"
               },
               {
