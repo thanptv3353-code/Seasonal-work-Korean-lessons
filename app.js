@@ -71,7 +71,7 @@ function setLessonProgress(subId, patch) {
 // determined attacker with devtools.
 const CURRENT_NAME_KEY = "kolo_current_name";
 const UNLOCKED_CACHE_KEY = "kolo_unlocked_cache";
-const PAY_AMOUNT_KIP = 20000;
+const DEFAULT_PAY_AMOUNT_KIP = 20000; // used until the admin sets a real amount in Firestore
 
 function normalizePhone(phone) {
   return String(phone || "").replace(/\D/g, "");
@@ -160,19 +160,41 @@ function isTopicLocked(topicId) {
   return idx > 0 && !getCachedUnlocked();
 }
 
-async function submitPaymentProof(phone, name, imageDataUrl) {
+async function submitPaymentProof(phone, name, imageDataUrl, amount) {
   try {
     await paymentProofsCol().add({
       phone: normalizePhone(phone),
       name,
       imageDataUrl,
-      amount: PAY_AMOUNT_KIP,
+      amount,
       status: "pending",
       submittedAt: Date.now(),
     });
     return true;
   } catch (e) {
     console.error("submitPaymentProof failed:", e);
+    return false;
+  }
+}
+function paymentSettingsDoc() {
+  return db.collection("paymentSettings").doc("current");
+}
+async function loadPaymentSettings() {
+  try {
+    const snap = await paymentSettingsDoc().get();
+    if (snap.exists) return snap.data();
+    return { qrImageDataUrl: null, amount: DEFAULT_PAY_AMOUNT_KIP };
+  } catch (e) {
+    console.error("loadPaymentSettings failed:", e);
+    return { qrImageDataUrl: null, amount: DEFAULT_PAY_AMOUNT_KIP, _offline: true };
+  }
+}
+async function savePaymentSettings(settings) {
+  try {
+    await paymentSettingsDoc().set(settings);
+    return true;
+  } catch (e) {
+    console.error("savePaymentSettings failed:", e);
     return false;
   }
 }
@@ -226,6 +248,30 @@ function readImageAsCompressedDataUrl(file, maxWidth = 900, quality = 0.6) {
         const ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
         resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+// QR codes are dense fine-grained patterns — lossy JPEG compression can
+// destroy scannability, so this keeps PNG (lossless) and only downsizes
+// the canvas if the source is unnecessarily huge.
+function readImageAsLosslessDataUrl(file, maxWidth = 700) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        const scale = Math.min(1, maxWidth / img.width);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/png"));
       };
       img.src = reader.result;
     };
@@ -759,6 +805,7 @@ async function renderStudentsAsync() {
 
   const allUsers = await loadAllUsers();
   const allProofs = await loadPaymentProofs();
+  const paySettings = await loadPaymentSettings();
   const pendingProofs = allProofs
     .filter((p) => p.status === "pending")
     .sort((a, b) => a.submittedAt - b.submittedAt);
@@ -828,8 +875,20 @@ async function renderStudentsAsync() {
     ${names.length ? `<div class="roster-list">${rows}</div>` : '<div class="empty-msg">ຍັງບໍ່ມີນັກຮຽນລົງທະບຽນ</div>'}
 
     <div class="admin-tools">
+      <h3>⚙️ ຕັ້ງຄ່າການຊຳລະເງິນ</h3>
+      <p class="admin-hint">ອັບໂຫລດຮູບ QR ໂອນເງິນ ແລະ ກຳນົດຈຳນວນຄ່າທຳນຽມ. ບັນທຶກແລ້ວຈະສະແດງໃນໜ້າຊຳລະເງິນຂອງນັກຮຽນທັນທີ.</p>
+      ${paySettings.qrImageDataUrl ? `<img class="qr-image" id="currentQrPreview" src="${paySettings.qrImageDataUrl}" alt="QR ປັດຈຸບັນ" style="display:block;margin-bottom:14px;" />` : '<p class="admin-hint">ຍັງບໍ່ໄດ້ຕັ້ງຄ່າ QR</p>'}
+      <label class="field-label" for="qrUploadInput">ຮູບ QR ໂອນເງິນໃໝ່ (ຖ້າຢາກປ່ຽນ)</label>
+      <input type="file" id="qrUploadInput" accept="image/*" class="name-input" />
+      <label class="field-label" for="paySettingsAmount">ຈຳນວນເງິນ (ກີບ)</label>
+      <input type="number" id="paySettingsAmount" class="name-input" value="${paySettings.amount}" min="0" step="1000" />
+      <button class="btn-secondary" id="savePaySettingsBtn">💾 ບັນທຶກການຕັ້ງຄ່າ</button>
+      <div id="paySettingsMsg" class="admin-hint"></div>
+    </div>
+
+    <div class="admin-tools">
       <h3>💳 ອະນຸມັດການຊຳລະເງິນ (${pendingProofs.length} ລໍຖ້າ)</h3>
-      <p class="admin-hint">ກວດຮູບຫຼັກຖານການໂອນເງິນ ${PAY_AMOUNT_KIP.toLocaleString("en-US")} ກີບ ແລ້ວກົດອະນຸມັດ ຫຼື ປະຕິເສດ. ອະນຸມັດແລ້ວຈະປົດລ໋ອກທຸກຫົວຂໍ້ໃຫ້ຄົນນັ້ນທັນທີ.</p>
+      <p class="admin-hint">ກວດຮູບຫຼັກຖານການໂອນເງິນ ${paySettings.amount.toLocaleString("en-US")} ກີບ ແລ້ວກົດອະນຸມັດ ຫຼື ປະຕິເສດ. ອະນຸມັດແລ້ວຈະປົດລ໋ອກທຸກຫົວຂໍ້ໃຫ້ຄົນນັ້ນທັນທີ.</p>
       <div class="roster-list">${pendingProofsHtml}</div>
     </div>
 
@@ -910,6 +969,46 @@ async function renderStudentsAsync() {
       renderStudentsAsync();
     });
   });
+  (function bindPaySettingsForm() {
+    const qrInput = document.getElementById("qrUploadInput");
+    const amountInput = document.getElementById("paySettingsAmount");
+    const saveBtn = document.getElementById("savePaySettingsBtn");
+    const msgEl = document.getElementById("paySettingsMsg");
+    let newQrDataUrl = null;
+
+    qrInput.addEventListener("change", async () => {
+      const file = qrInput.files[0];
+      if (!file) return;
+      msgEl.textContent = "ກຳລັງໂຫລດຮູບ...";
+      try {
+        newQrDataUrl = await readImageAsLosslessDataUrl(file);
+        msgEl.textContent = "ໂຫລດຮູບແລ້ວ, ກົດ 'ບັນທຶກການຕັ້ງຄ່າ' ເພື່ອບັນທຶກ";
+      } catch (e) {
+        msgEl.textContent = "ບໍ່ສາມາດອ່ານຮູບໄດ້, ລອງໃໝ່ອີກຄັ້ງ";
+      }
+    });
+
+    saveBtn.addEventListener("click", async () => {
+      const amount = Number(amountInput.value);
+      if (!amount || amount < 0) {
+        msgEl.textContent = "ກະລຸນາໃສ່ຈຳນວນເງິນທີ່ຖືກຕ້ອງ";
+        return;
+      }
+      saveBtn.disabled = true;
+      saveBtn.textContent = "ກຳລັງບັນທຶກ...";
+      const settings = { amount };
+      if (newQrDataUrl) settings.qrImageDataUrl = newQrDataUrl;
+      else if (paySettings.qrImageDataUrl) settings.qrImageDataUrl = paySettings.qrImageDataUrl;
+      const ok = await savePaymentSettings(settings);
+      if (!ok) {
+        msgEl.textContent = "ບັນທຶກບໍ່ສຳເລັດ, ກວດສອບອິນເຕີເນັດແລ້ວລອງໃໝ່";
+        saveBtn.disabled = false;
+        saveBtn.textContent = "💾 ບັນທຶກການຕັ້ງຄ່າ";
+        return;
+      }
+      renderStudentsAsync();
+    });
+  })();
   document.getElementById("toggleExamBtn").addEventListener("click", async () => {
     const cfg = await loadExamConfig();
     cfg.enabled = !cfg.enabled;
@@ -1109,7 +1208,8 @@ async function renderPaywallAsync() {
   if (getCachedUnlocked()) return navigate("#/home");
 
   const proof = await getMyLatestProof(phone);
-  const amountText = PAY_AMOUNT_KIP.toLocaleString("en-US");
+  const settings = await loadPaymentSettings();
+  const amountText = settings.amount.toLocaleString("en-US");
 
   let statusHtml = "";
   let formHtml = "";
@@ -1137,8 +1237,9 @@ async function renderPaywallAsync() {
       <p>ໂອນເງິນຈຳນວນ <strong>${amountText} ກີບ</strong> ຜ່ານ QR ຂ້າງລຸ່ມ ແລ້ວອັບໂຫລດຫຼັກຖານການໂອນ. ຫຼັງແອັດມິນກວດສອບ ແລະ ອະນຸມັດແລ້ວ, ທ່ານຈະຮຽນໄດ້ທຸກຫົວຂໍ້ທັນທີ.</p>
     </div>
     <div class="qr-box">
-      <img src="qr-payment.png" alt="QR ໂອນເງິນ" class="qr-image" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
-      <div class="qr-placeholder">📷<br>ຮູບ QR ໂອນເງິນ<br>(ຈະໃສ່ໃນໄວໆນີ້)</div>
+      ${settings.qrImageDataUrl
+        ? `<img src="${settings.qrImageDataUrl}" alt="QR ໂອນເງິນ" class="qr-image" />`
+        : `<div class="qr-placeholder" style="display:flex">📷<br>ຮູບ QR ໂອນເງິນ<br>(ແອັດມິນຍັງບໍ່ໄດ້ຕັ້ງຄ່າ)</div>`}
       <div class="qr-amount">${amountText} ກີບ</div>
     </div>
     ${statusHtml}
@@ -1174,7 +1275,7 @@ async function renderPaywallAsync() {
       if (!compressedDataUrl) return;
       submitBtn.disabled = true;
       submitBtn.textContent = "ກຳລັງສົ່ງ...";
-      const ok = await submitPaymentProof(phone, getCurrentStudentName(), compressedDataUrl);
+      const ok = await submitPaymentProof(phone, getCurrentStudentName(), compressedDataUrl, settings.amount);
       if (!ok) {
         errorEl.textContent = "ສົ່ງບໍ່ສຳເລັດ, ກວດສອບອິນເຕີເນັດແລ້ວລອງໃໝ່";
         submitBtn.disabled = false;
