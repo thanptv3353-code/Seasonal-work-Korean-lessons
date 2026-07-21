@@ -571,6 +571,15 @@ body { padding-bottom: 40px; }
 .mini-badge.failed { background: #fdeaea; }
 .mini-badge.in-progress { background: #fff2df; }
 .roster-summary { font-size: .82rem; color: var(--text-mute); white-space: nowrap; }
+.roster-delete-btn {
+  border: none;
+  background: none;
+  color: var(--red);
+  font-size: 1.1rem;
+  padding: 4px 6px;
+  cursor: pointer;
+  line-height: 1;
+}
 .empty-msg { text-align: center; color: var(--text-mute); padding: 40px 0; }
 .proof-row {
   background: var(--card-bg);

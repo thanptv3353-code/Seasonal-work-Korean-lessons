@@ -872,6 +872,7 @@ async function renderStudentsAsync() {
         <div class="roster-name">${name}</div>
         <div class="roster-badges">${topicBadges}</div>
         <div class="roster-summary">${totalPassed}/${totalSubs} ບົດຜ່ານ</div>
+        <button class="roster-delete-btn" data-name="${escapeAttr(name)}" aria-label="ລຶບ">🗑️</button>
       </div>`;
   }).join("");
 
@@ -1031,6 +1032,16 @@ async function renderStudentsAsync() {
 
   app.querySelectorAll(".lesson-edit-btn").forEach((btn) => {
     btn.addEventListener("click", () => navigate("#/edit/" + btn.dataset.id));
+  });
+  app.querySelectorAll(".roster-delete-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const ok = await showConfirm(`ລຶບຄວາມຄືບໜ້າຂອງ "${btn.dataset.name}" ອອກຈາກລາຍຊື່ນີ້ບໍ? (ອັນນີ້ແມ່ນຂໍ້ມູນຄວາມຄືບໜ້າໃນອຸປະກອນນີ້ເທົ່ານັ້ນ, ບໍ່ກ່ຽວກັບບັນຊີເຂົ້າສູ່ລະບົບ)`);
+      if (!ok) return;
+      const students = loadStudents();
+      delete students[btn.dataset.name];
+      saveStudents(students);
+      renderStudentsAsync();
+    });
   });
   app.querySelectorAll(".proof-thumb").forEach((img) => {
     img.addEventListener("click", () => window.open(img.dataset.full, "_blank"));
