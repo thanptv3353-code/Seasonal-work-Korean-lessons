@@ -311,6 +311,8 @@ body { padding-bottom: 40px; }
   cursor: pointer;
   margin-top: 10px;
 }
+.btn-danger { color: var(--red); border-color: var(--red); }
+.btn-danger:active { background: #fdeeee; }
 
 /* ---------- Quiz view ---------- */
 .quiz-progress {

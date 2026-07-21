@@ -1,7 +1,9 @@
 // ---------- Admin PIN gate ----------
-// Change this PIN to whatever the admin wants. It only guards against students
-// accidentally wandering into the roster/edit pages — not real security.
-const ADMIN_PIN = "1234";
+// The PIN itself lives in Firestore (adminConfig/current) so changing it from
+// one device takes effect everywhere, not just that browser. This only
+// guards against students accidentally wandering into the roster/edit pages
+// — not real security.
+const DEFAULT_ADMIN_PIN = "1234";
 const ADMIN_UNLOCK_KEY = "kolo_admin_unlocked";
 
 function isAdminUnlocked() {
@@ -9,6 +11,27 @@ function isAdminUnlocked() {
 }
 function lockAdmin() {
   sessionStorage.removeItem(ADMIN_UNLOCK_KEY);
+}
+function adminConfigDoc() {
+  return db.collection("adminConfig").doc("current");
+}
+async function loadAdminPin() {
+  try {
+    const snap = await adminConfigDoc().get();
+    return (snap.exists && snap.data().pin) || DEFAULT_ADMIN_PIN;
+  } catch (e) {
+    console.error("loadAdminPin failed:", e);
+    return DEFAULT_ADMIN_PIN;
+  }
+}
+async function saveAdminPin(pin) {
+  try {
+    await adminConfigDoc().set({ pin });
+    return true;
+  } catch (e) {
+    console.error("saveAdminPin failed:", e);
+    return false;
+  }
 }
 
 // ---------- Student registry & progress storage ----------
@@ -120,6 +143,15 @@ async function verifyLogin(phone, password) {
 async function setUserUnlocked(phone, unlocked) {
   await usersCol().doc(normalizePhone(phone)).update({ unlocked });
 }
+async function deleteUser(phone) {
+  try {
+    await usersCol().doc(normalizePhone(phone)).delete();
+    return true;
+  } catch (e) {
+    console.error("deleteUser failed:", e);
+    return false;
+  }
+}
 async function loadAllUsers() {
   try {
     const snap = await usersCol().get();
@@ -213,13 +245,22 @@ async function getMyLatestProof(phone) {
   return mine[0] || null;
 }
 async function approveProof(proofId, phone) {
+  const id = normalizePhone(phone);
+  if (!id) {
+    console.error("approveProof failed: proof has no valid phone attached", proofId);
+    return { ok: false, reason: "no-phone" };
+  }
   try {
+    // Unlock the student FIRST — if this throws, the proof stays "pending"
+    // instead of getting marked "approved" while the student never actually
+    // gets unlocked (a silent partial-failure that looked like nothing
+    // happened, but had actually half-happened).
+    await setUserUnlocked(id, true);
     await paymentProofsCol().doc(proofId).update({ status: "approved", reviewedAt: Date.now() });
-    await setUserUnlocked(phone, true);
-    return true;
+    return { ok: true };
   } catch (e) {
     console.error("approveProof failed:", e);
-    return false;
+    return { ok: false, reason: "error" };
   }
 }
 async function rejectProof(proofId) {
@@ -764,6 +805,11 @@ function renderNameEntry() {
 function renderAdminGate(targetHash) {
   backBtn.classList.remove("hidden");
   topTitle.textContent = "ສຳລັບແອັດມິນ";
+  app.innerHTML = `<div class="empty-msg">ກຳລັງໂຫລດ...</div>`;
+  renderAdminGateAsync(targetHash);
+}
+async function renderAdminGateAsync(targetHash) {
+  const currentPin = await loadAdminPin();
 
   app.innerHTML = `
     <div class="intro edit-intro">
@@ -777,7 +823,7 @@ function renderAdminGate(targetHash) {
 
   const input = document.getElementById("adminPinInput");
   const tryUnlock = () => {
-    if (input.value === ADMIN_PIN) {
+    if (input.value === currentPin) {
       sessionStorage.setItem(ADMIN_UNLOCK_KEY, "1");
       if (window.location.hash === targetHash) render();
       else navigate(targetHash);
@@ -841,6 +887,7 @@ async function renderStudentsAsync() {
   const allUsers = await loadAllUsers();
   const allProofs = await loadPaymentProofs();
   const paySettings = await loadPaymentSettings();
+  const currentAdminPin = await loadAdminPin();
   const pendingProofs = allProofs
     .filter((p) => p.status === "pending")
     .sort((a, b) => a.submittedAt - b.submittedAt);
@@ -876,6 +923,7 @@ async function renderStudentsAsync() {
           <button class="btn-secondary toggle-unlock-btn" data-phone="${u.phone}" data-unlocked="${u.unlocked ? "1" : "0"}">
             ${u.unlocked ? "🔓 ປົດລ໋ອກແລ້ວ (ກົດເພື່ອລ໋ອກ)" : "🔒 ຍັງລ໋ອກ (ກົດເພື່ອປົດລ໋ອກ)"}
           </button>
+          <button class="btn-secondary btn-danger delete-user-btn" data-phone="${u.phone}" data-name="${escapeAttr(u.name)}">🗑️ ລຶບບັນຊີນີ້</button>
         </div>`).join("")
     : '<div class="empty-msg">ຍັງບໍ່ມີບັນຊີລົງທະບຽນ</div>';
 
@@ -965,6 +1013,19 @@ async function renderStudentsAsync() {
       </div>
     </div>
 
+    <div class="admin-tools">
+      <h3>🔑 ປ່ຽນລະຫັດ PIN ແອັດມິນ</h3>
+      <p class="admin-hint">ລະຫັດນີ້ໃຊ້ຮ່ວມກັນທຸກອຸປະກອນ — ປ່ຽນຈາກເຄື່ອງນີ້ແລ້ວ ໃຊ້ໄດ້ທຸກບ່ອນທັນທີ.</p>
+      <label class="field-label" for="curPinInput">ລະຫັດ PIN ປັດຈຸບັນ</label>
+      <input type="password" id="curPinInput" class="name-input" inputmode="numeric" autocomplete="off" />
+      <label class="field-label" for="newPinInput">ລະຫັດ PIN ໃໝ່</label>
+      <input type="password" id="newPinInput" class="name-input" inputmode="numeric" autocomplete="off" />
+      <label class="field-label" for="newPinInput2">ຢືນຢັນລະຫັດ PIN ໃໝ່</label>
+      <input type="password" id="newPinInput2" class="name-input" inputmode="numeric" autocomplete="off" />
+      <button class="btn-secondary" id="changePinBtn">💾 ບັນທຶກລະຫັດໃໝ່</button>
+      <div id="changePinMsg" class="admin-hint"></div>
+    </div>
+
     <button class="link-btn" id="lockAdminBtn">🔒 ອອກຈາກໂໝດແອັດມິນ</button>
   `;
 
@@ -978,8 +1039,13 @@ async function renderStudentsAsync() {
     btn.addEventListener("click", async () => {
       if (!(await showConfirm("ອະນຸມັດການຊຳລະເງິນນີ້ ແລະ ປົດລ໋ອກທຸກຫົວຂໍ້ໃຫ້ບໍ?"))) return;
       btn.disabled = true;
-      const ok = await approveProof(btn.dataset.id, btn.dataset.phone);
-      if (!ok) await showAlert("ອະນຸມັດບໍ່ສຳເລັດ, ກວດສອບອິນເຕີເນັດແລ້ວລອງໃໝ່");
+      const result = await approveProof(btn.dataset.id, btn.dataset.phone);
+      if (!result.ok) {
+        const msg = result.reason === "no-phone"
+          ? "ຫຼັກຖານນີ້ບໍ່ມີເບີໂທຂອງນັກຮຽນຕິດມາ (ອາດແມ່ນຂໍ້ມູນເກົ່າຜິດພາດ) — ອະນຸມັດບໍ່ໄດ້, ກະລຸນາປະຕິເສດອັນນີ້ແທນ"
+          : "ອະນຸມັດບໍ່ສຳເລັດ, ກວດສອບອິນເຕີເນັດແລ້ວລອງໃໝ່";
+        await showAlert(msg);
+      }
       renderStudentsAsync();
     });
   });
@@ -1001,6 +1067,16 @@ async function renderStudentsAsync() {
       } catch (e) {
         await showAlert("ບໍ່ສຳເລັດ, ກວດສອບອິນເຕີເນັດແລ້ວລອງໃໝ່");
       }
+      renderStudentsAsync();
+    });
+  });
+  app.querySelectorAll(".delete-user-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const ok = await showConfirm(`ລຶບບັນຊີຂອງ "${btn.dataset.name}" (${btn.dataset.phone}) ຖາວອນບໍ? ນັກຮຽນຄົນນີ້ຈະຕ້ອງລົງທະບຽນ ແລະ ຊຳລະເງິນໃໝ່ຖ້າຢາກຮຽນອີກ.`);
+      if (!ok) return;
+      btn.disabled = true;
+      const deleted = await deleteUser(btn.dataset.phone);
+      if (!deleted) await showAlert("ລຶບບໍ່ສຳເລັດ, ກວດສອບອິນເຕີເນັດແລ້ວລອງໃໝ່");
       renderStudentsAsync();
     });
   });
@@ -1067,6 +1143,31 @@ async function renderStudentsAsync() {
   document.getElementById("exportBackupBtn").addEventListener("click", exportOverridesBackup);
   document.getElementById("importInput").addEventListener("change", (e) => {
     if (e.target.files[0]) importOverridesBackup(e.target.files[0]);
+  });
+  document.getElementById("changePinBtn").addEventListener("click", async () => {
+    const curInput = document.getElementById("curPinInput");
+    const newInput = document.getElementById("newPinInput");
+    const newInput2 = document.getElementById("newPinInput2");
+    const msgEl = document.getElementById("changePinMsg");
+    if (curInput.value !== currentAdminPin) {
+      msgEl.textContent = "ລະຫັດ PIN ປັດຈຸບັນບໍ່ຖືກຕ້ອງ";
+      return;
+    }
+    if (!newInput.value || newInput.value.length < 4) {
+      msgEl.textContent = "ລະຫັດ PIN ໃໝ່ຕ້ອງມີຢ່າງໜ້ອຍ 4 ໂຕ";
+      return;
+    }
+    if (newInput.value !== newInput2.value) {
+      msgEl.textContent = "ລະຫັດ PIN ໃໝ່ທັງສອງຊ່ອງບໍ່ຄືກັນ";
+      return;
+    }
+    const ok = await saveAdminPin(newInput.value);
+    if (!ok) {
+      msgEl.textContent = "ບັນທຶກບໍ່ສຳເລັດ, ກວດສອບອິນເຕີເນັດແລ້ວລອງໃໝ່";
+      return;
+    }
+    await showAlert("ປ່ຽນລະຫັດ PIN ສຳເລັດແລ້ວ!");
+    renderStudentsAsync();
   });
   document.getElementById("lockAdminBtn").addEventListener("click", () => {
     lockAdmin();
@@ -1239,6 +1340,7 @@ function renderPaywall() {
 }
 async function renderPaywallAsync() {
   const phone = getCurrentStudent();
+  if (!phone) return navigate("#/name"); // defensive: never submit a proof with no student identity attached
   await refreshUnlockedStatus();
   if (getCachedUnlocked()) return navigate("#/home");
 
