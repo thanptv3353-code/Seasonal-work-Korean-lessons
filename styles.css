@@ -443,6 +443,20 @@ body { padding-bottom: 40px; }
   cursor: pointer;
 }
 .auth-tab.active { background: var(--card-bg); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0 14px;
+  color: var(--text-mute);
+  font-size: .82rem;
+}
+.auth-divider::before, .auth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
 
 /* ---------- Search ---------- */
 .search-input {
