@@ -696,7 +696,7 @@ function updateStudentBadge(view) {
 }
 
 // ---------- Register / login view ----------
-let authMode = "register";
+let authMode = "login";
 function renderNameEntry() {
   backBtn.classList.toggle("hidden", !getCurrentStudent());
   topTitle.textContent = "ເຂົ້າສູ່ລະບົບ";
@@ -706,11 +706,11 @@ function renderNameEntry() {
       <h2>ຍິນດີຕ້ອນຮັບ 🙋</h2>
       <p>ຫົວຂໍ້ທຳອິດ (ການທັກທາຍ) ຮຽນໄດ້ຟຣີ. ຫົວຂໍ້ອື່ນໆຕ້ອງລົງທະບຽນ ແລະ ຊຳລະເງິນກ່ອນຈຶ່ງຮຽນໄດ້.</p>
     </div>
-    <button class="btn-primary" id="examLinkBtn">📝 ລົງຊື່ເຂົ້າສອບເສັງທາງການ →</button>
+    <button class="btn-primary" id="examLinkBtn">📝 ລົງຊື່ເຂົ້າສອບເສັງ →</button>
     <div class="auth-divider">ຫຼື ຮຽນ/ລົງທະບຽນບົດຮຽນ</div>
     <div class="auth-tabs">
-      <button class="auth-tab" id="tabRegister">ລົງທະບຽນໃໝ່</button>
       <button class="auth-tab" id="tabLogin">ເຂົ້າສູ່ລະບົບ</button>
+      <button class="auth-tab" id="tabRegister">ລົງທະບຽນໃໝ່</button>
     </div>
     <div id="authForm"></div>
     <div id="authError" class="admin-pin-error"></div>
