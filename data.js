@@ -498,7 +498,7 @@ const LESSONS = [
                 "lao_phonetic": "ຕົກພາໂລ ຄາໂຢ",
                 "lao_meaning": "ໄປຊື່ໆ",
                 "boss_korean_phonetic": "빠이 쓰쓰",
-                "icon": "🏷️"
+                "icon": "⬆️"
               },
               {
                 "korean": "왼쪽으로 가요",
@@ -1383,22 +1383,26 @@ const LESSONS = [
               {
                 "korean": "",
                 "lao_phonetic": "ມັນ-ວອນ",
-                "lao_meaning": "ເງິນ (돈): 10,000 ວອນ"
+                "lao_meaning": "ເງິນ (돈): 10,000 ວອນ",
+                "icon": "💰"
               },
               {
                 "korean": "",
                 "lao_phonetic": "ຊິບ-ບຸນ",
-                "lao_meaning": "ເວລາ (분): 10 ນາທີ"
+                "lao_meaning": "ເວລາ (분): 10 ນາທີ",
+                "icon": "⏱️"
               },
               {
                 "korean": "",
                 "lao_phonetic": "ໂອ-ກີໂລ-ໂອ",
-                "lao_meaning": "ນ້ຳໜັກ (kg): 5 ກີໂລ"
+                "lao_meaning": "ນ້ຳໜັກ (kg): 5 ກີໂລ",
+                "icon": "⚖️"
               },
               {
                 "korean": "",
                 "lao_phonetic": "ຄົງ-ອິລ-ກົງ...",
-                "lao_meaning": "ເບີໂທ (전화): 010..."
+                "lao_meaning": "ເບີໂທ (전화): 010...",
+                "icon": "📞"
               }
             ]
           },
@@ -2329,7 +2333,7 @@ const LESSONS = [
                 "lao_phonetic": "ຕົກພາໂລ",
                 "lao_meaning": "ຊື່ໆໄປ",
                 "boss_korean_phonetic": "쓰쓰",
-                "icon": "🏷️"
+                "icon": "⬆️"
               },
               {
                 "korean": "앞",
@@ -2405,7 +2409,7 @@ const LESSONS = [
                 "lao_phonetic": "ຕົກພາໂລ ຄາໂຢ",
                 "lao_meaning": "ຢ່າງໄປຊື່ໆ",
                 "boss_korean_phonetic": "냥 빠이 쓰쓰",
-                "icon": "🏷️"
+                "icon": "⬆️"
               },
               {
                 "korean": "이쪽으로 오세요",
@@ -4196,7 +4200,7 @@ const LESSONS = [
                 "lao_phonetic": "ຊາ-ກວາ",
                 "lao_meaning": "ໝາກແອັບເປິ້ນ",
                 "boss_korean_phonetic": "막 앱 뻔",
-                "icon": "❄️"
+                "icon": "🍎"
               },
               {
                 "korean": "포도",
@@ -4238,7 +4242,7 @@ const LESSONS = [
                 "lao_phonetic": "ຄຳ",
                 "lao_meaning": "ໝາກພັບ",
                 "boss_korean_phonetic": "막 밥",
-                "icon": "🍅"
+                "icon": "🍊"
               }
             ]
           },
